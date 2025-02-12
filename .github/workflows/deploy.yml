@@ -14,7 +14,7 @@ on:
         default: ""
 
 env:
-  PROD_MOODLE_ROOT: /var/www/html/moodle
+  PROD_MOODLE_ROOT: /var/www/html/moodle-new
 
 jobs:
   find-changed:
@@ -32,15 +32,35 @@ jobs:
         with:
           list-files: json
           filters: |
+            auth:
+              - "auth/**"
+            blocks:
+              - "blocks/**"
+            customfield:
+              - "customfield/**"
+            enrol:
+              - "enrol/**"
+            local:
+              - "local/**"
             mod:
               - "mod/**"
+            theme:
+              - "theme/**"
+            
+            
       - name: Extract changed directories
         id: list_dirs
         run: |
           echo "Changed files detected: ${{ steps.filter.outputs.mod_files }}"
-                                     
-          all_changed_files="${{ steps.filter.outputs.mod_files }}"
-                                                                                             
+          echo "Changed files detected: ${{ steps.filter.outputs.auth_files }}"
+          echo "Changed files detected: ${{ steps.filter.outputs.blocks_files }}"
+          echo "Changed files detected: ${{ steps.filter.outputs.customfield_files }}"
+          echo "Changed files detected: ${{ steps.filter.outputs.enrol_files }}"
+          echo "Changed files detected: ${{ steps.filter.outputs.local_files }}"
+          echo "Changed files detected: ${{ steps.filter.outputs.theme_files }}"
+          
+          all_changed_files="${{ steps.filter.outputs.mod_files }},${{ steps.filter.outputs.auth_files }},${{ steps.filter.outputs.blocks_files }},${{ steps.filter.outputs.customfield_files }},${{ steps.filter.outputs.enrol_files }},${{ steps.filter.outputs.local_files }},${{ steps.filter.outputs.theme_files }}"
+
           dirs=$(echo "$all_changed_files" \
                   | sed 's/[][]//g' \
                   | tr ',' '\n' \
@@ -49,7 +69,7 @@ jobs:
                   | sort -u)
           echo "Raw detected directories:"
           echo "$dirs"
-                                                     
+          
           if [[ -z "$dirs" ]]; then
             json="[]"
           else
@@ -78,25 +98,25 @@ jobs:
           SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
           ZIP_FILE="${SAFE_NAME}-$(date +'%Y%m%d-%H%M%S').zip"
       
-                                                
+          
           BASE_DIR=$(basename "${{ matrix.dir }}")
       
                                                                     
           cd "$(dirname "${{ matrix.dir }}")"
           zip -qr "../$ZIP_FILE" "$BASE_DIR"
           cd -
-      
+          
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
           echo "safe_name=$SAFE_NAME" >> "$GITHUB_OUTPUT"
 
-                                      
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: deployment-package-${{ steps.zip.outputs.safe_name }}
           path: ${{ steps.zip.outputs.zip_file }}
           retention-days: 5
- 
+
   deploy:
     name: Deploy to Moodle Instance
     needs: [find-changed, package]
@@ -117,7 +137,7 @@ jobs:
           name: deployment-package-${{ needs.package.outputs.safe_name }}
           path: /tmp
             
-                                                                 
+
       - name: Determine Moodle Root Path
         id: determine-path
         run: |
