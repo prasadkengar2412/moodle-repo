@@ -59,15 +59,19 @@ jobs:
           
           process_files() {
             local filter_name=$1
-            local json_input=$2
-            echo "Processing $filter_name files: $json_input"
+            local raw_input=$2
+            echo "Processing $filter_name files: $raw_input"
             
-            if [[ "$json_input" == "[]" || -z "$json_input" ]]; then
+            if [[ -z "$raw_input" || "$raw_input" == "[]" ]]; then
               echo "No files found for $filter_name"
               return
             fi
 
+            # Clean and parse input
             while IFS= read -r file; do
+              file=$(echo "$file" | sed 's/^ *//; s/ *$//; s/"//g')
+              [[ -z "$file" ]] && continue
+              
               echo "Found file: $file"
               IFS='/' read -ra parts <<< "$file"
               
@@ -86,10 +90,9 @@ jobs:
                 plugin_map["$key"]=1
                 echo "Added directory: $key"
               fi
-            done < <(jq -r '.[]' <<< "$json_input")
+            done < <(echo "$raw_input" | sed 's/[][]//g' | tr ',' '\n')
           }
 
-          # Process each filter output directly as JSON strings
           process_files "auth" "${{ steps.file-filter.outputs.auth_files }}"
           process_files "blocks" "${{ steps.file-filter.outputs.blocks_files }}"
           process_files "customfield" "${{ steps.file-filter.outputs.customfield_files }}"
@@ -172,7 +175,7 @@ jobs:
           set -eo pipefail
           target_dir="$ROOT/${{ matrix.dir }}"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
-          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-')"
+          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-'))"
 
           echo "Starting deployment to: $target_dir"
           
