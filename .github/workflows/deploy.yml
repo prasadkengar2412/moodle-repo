@@ -62,7 +62,7 @@ jobs:
             local json_input=$2
             echo "Processing $filter_name files: $json_input"
             
-            if [[ "$json_input" == "[]" ]]; then
+            if [[ "$json_input" == "[]" || -z "$json_input" ]]; then
               echo "No files found for $filter_name"
               return
             fi
@@ -89,13 +89,14 @@ jobs:
             done < <(jq -r '.[]' <<< "$json_input")
           }
 
-          process_files "auth" "${{ fromJson(steps.file-filter.outputs.auth_files) }}"
-          process_files "blocks" "${{ fromJson(steps.file-filter.outputs.blocks_files) }}"
-          process_files "customfield" "${{ fromJson(steps.file-filter.outputs.customfield_files) }}"
-          process_files "enrol" "${{ fromJson(steps.file-filter.outputs.enrol_files) }}"
-          process_files "local" "${{ fromJson(steps.file-filter.outputs.local_files) }}"
-          process_files "mod" "${{ fromJson(steps.file-filter.outputs.mod_files) }}"
-          process_files "theme" "${{ fromJson(steps.file-filter.outputs.theme_files) }}"
+          # Process each filter output directly as JSON strings
+          process_files "auth" "${{ steps.file-filter.outputs.auth_files }}"
+          process_files "blocks" "${{ steps.file-filter.outputs.blocks_files }}"
+          process_files "customfield" "${{ steps.file-filter.outputs.customfield_files }}"
+          process_files "enrol" "${{ steps.file-filter.outputs.enrol_files }}"
+          process_files "local" "${{ steps.file-filter.outputs.local_files }}"
+          process_files "mod" "${{ steps.file-filter.outputs.mod_files }}"
+          process_files "theme" "${{ steps.file-filter.outputs.theme_files }}"
 
           dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
           echo "Identified directories:"
@@ -171,7 +172,7 @@ jobs:
           set -eo pipefail
           target_dir="$ROOT/${{ matrix.dir }}"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
-          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-'))"
+          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-')"
 
           echo "Starting deployment to: $target_dir"
           
