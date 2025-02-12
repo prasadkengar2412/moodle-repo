@@ -67,7 +67,6 @@ jobs:
               return
             fi
 
-            # Clean and parse input
             while IFS= read -r file; do
               file=$(echo "$file" | sed 's/^ *//; s/ *$//; s/"//g')
               [[ -z "$file" ]] && continue
@@ -108,7 +107,7 @@ jobs:
           if [[ -z "$dir_list" ]]; then
             json_dirs="[]"
           else
-            json_dirs=$(jq -n '$ARGS.positional' --args ${dir_list})
+            json_dirs=$(printf '%s\n' "${dir_list[@]}" | jq -R . | jq -s .)
           fi
           
           echo "Final directory list: $json_dirs"
