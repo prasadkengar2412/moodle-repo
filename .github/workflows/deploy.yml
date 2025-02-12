@@ -185,11 +185,16 @@ jobs:
           deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
           target_dir="$ROOT/$deploy_subdir"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
-          # Use the safe name (computed from the full matrix.dir) to find the artifact zip file
+          # Compute the safe name and use find to get the zip file path
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
-          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$safe_name")"
-
+          zip_file=$(find /tmp/deployment -maxdepth 1 -type f -name "${safe_name}-*.zip" | head -n 1)
+          
           echo "Starting deployment to: $target_dir"
+          
+          if [ -z "$zip_file" ]; then
+            echo "Error: Zip file for $safe_name not found in /tmp/deployment"
+            exit 1
+          fi
           
           sudo mkdir -p "$backup_dir"
           if [ -d "$target_dir" ]; then
