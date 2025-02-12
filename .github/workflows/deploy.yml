@@ -43,7 +43,7 @@ jobs:
                   local:
                     - "local/**"
                   mod:
-                    - "mod/**"
+                    - "plugins/mod/**"
                   theme:
                     - "theme/**"
             
