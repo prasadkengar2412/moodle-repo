@@ -33,6 +33,7 @@ jobs:
         id: file-filter
         uses: dorny/paths-filter@v3
         with:
+          list-files: json
           filters: |
             auth:
               - 'plugins/auth/**'
@@ -52,14 +53,22 @@ jobs:
       - name: Process Changes
         id: process-changes
         run: |
-          echo "⏳ Starting change processing..."
+          echo "Starting change processing..."
           
-          # Load all changed files
           declare -A plugin_map
           
           process_files() {
-            local json_input=$1
+            local filter_name=$1
+            local json_input=$2
+            echo "Processing $filter_name files: $json_input"
+            
+            if [[ "$json_input" == "[]" ]]; then
+              echo "No files found for $filter_name"
+              return
+            fi
+
             while IFS= read -r file; do
+              echo "Found file: $file"
               IFS='/' read -ra parts <<< "$file"
               
               if [[ ${#parts[@]} -ge 3 ]]; then
@@ -75,40 +84,30 @@ jobs:
                     ;;
                 esac
                 plugin_map["$key"]=1
+                echo "Added directory: $key"
               fi
             done < <(jq -r '.[]' <<< "$json_input")
           }
 
-          echo "🔍 Processing auth files..."
-          process_files '${{ steps.file-filter.outputs.auth_files }}'
-          
-          echo "🔍 Processing blocks files..."
-          process_files '${{ steps.file-filter.outputs.blocks_files }}'
-          
-          echo "🔍 Processing customfield files..."
-          process_files '${{ steps.file-filter.outputs.customfield_files }}'
-          
-          echo "🔍 Processing enrol files..."
-          process_files '${{ steps.file-filter.outputs.enrol_files }}'
-          
-          echo "🔍 Processing local files..."
-          process_files '${{ steps.file-filter.outputs.local_files }}'
-          
-          echo "🔍 Processing mod files..."
-          process_files '${{ steps.file-filter.outputs.mod_files }}'
-          
-          echo "🔍 Processing theme files..."
-          process_files '${{ steps.file-filter.outputs.theme_files }}'
+          process_files "auth" "${{ fromJson(steps.file-filter.outputs.auth_files) }}"
+          process_files "blocks" "${{ fromJson(steps.file-filter.outputs.blocks_files) }}"
+          process_files "customfield" "${{ fromJson(steps.file-filter.outputs.customfield_files) }}"
+          process_files "enrol" "${{ fromJson(steps.file-filter.outputs.enrol_files) }}"
+          process_files "local" "${{ fromJson(steps.file-filter.outputs.local_files) }}"
+          process_files "mod" "${{ fromJson(steps.file-filter.outputs.mod_files) }}"
+          process_files "theme" "${{ fromJson(steps.file-filter.outputs.theme_files) }}"
 
-          # Generate sorted directory list
           dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
-          echo "📂 Identified directories:"
+          echo "Identified directories:"
           echo "$dir_list"
 
-          # Create JSON array
-          json_dirs=$(jq -n '$ARGS.positional' --args ${dir_list})
-          echo "✅ Final directory list: $json_dirs"
+          if [[ -z "$dir_list" ]]; then
+            json_dirs="[]"
+          else
+            json_dirs=$(jq -n '$ARGS.positional' --args ${dir_list})
+          fi
           
+          echo "Final directory list: $json_dirs"
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
 
   package-plugins:
@@ -126,15 +125,14 @@ jobs:
       - name: Create Plugin Bundle
         id: package
         run: |
-          echo "📦 Packaging ${{ matrix.dir }}..."
+          echo "Packaging ${{ matrix.dir }}..."
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           
-          # Create archive maintaining directory structure
           cd "$(dirname "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
           
-          echo "📄 Created package: $zip_file ($(du -h $zip_file | cut -f1))"
+          echo "Created package: $zip_file ($(du -h $zip_file | cut -f1))"
           echo "zip=$zip_file" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
 
@@ -166,7 +164,7 @@ jobs:
             main) echo "ROOT=$PROD_ROOT" >> $GITHUB_ENV ;;
             *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
-          echo "🌐 Using deployment root: $ROOT"
+          echo "Using deployment root: $ROOT"
 
       - name: Safe Deployment
         run: |
@@ -175,28 +173,24 @@ jobs:
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
           zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-'))"
 
-          echo "🔄 Starting deployment to: $target_dir"
+          echo "Starting deployment to: $target_dir"
           
-          # Create backup
           sudo mkdir -p "$backup_dir"
           if [ -d "$target_dir" ]; then
-            echo "📂 Creating backup..."
+            echo "Creating backup..."
             sudo tar -czf "$backup_dir/$(basename "$target_dir").tgz" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
           fi
           
-          # Clean deployment
-          echo "🧹 Removing old files..."
+          echo "Removing old files..."
           sudo rm -rf "$target_dir"
           
-          # Extract new files
-          echo "🚚 Deploying new version..."
+          echo "Deploying new version..."
           sudo mkdir -p "$(dirname "$target_dir")"
           sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
           
-          # Set permissions
-          echo "🔒 Setting permissions..."
+          echo "Setting permissions..."
           sudo chown -R www-data:www-data "$target_dir"
           sudo find "$target_dir" -type d -exec chmod 755 {} \;
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
           
-          echo "🎉 Successfully deployed ${{ matrix.dir }}!"
+          echo "Successfully deployed ${{ matrix.dir }}!"
