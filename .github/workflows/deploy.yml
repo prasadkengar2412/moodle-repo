@@ -181,36 +181,46 @@ jobs:
       - name: Safe Deployment
         run: |
           set -eo pipefail
-          # Remove the "plugins/" prefix if present so that on the server the plugin is placed directly
+          # Remove the "plugins/" prefix if present so that the plugin is placed directly under ROOT
           deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
           target_dir="$ROOT/$deploy_subdir"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
           # Compute the safe name and use find to get the zip file path
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          echo "Computed safe_name: $safe_name"
           zip_file=$(find /tmp/deployment -maxdepth 1 -type f -name "${safe_name}-*.zip" | head -n 1)
-          
-          echo "Starting deployment to: $target_dir"
           
           if [ -z "$zip_file" ]; then
             echo "Error: Zip file for $safe_name not found in /tmp/deployment"
             exit 1
           fi
+          echo "Zip file found: $zip_file"
+          echo "Backup directory: $backup_dir"
+          echo "Target directory: $target_dir"
+          
+          echo "Listing contents of zip file:"
+          unzip -l "$zip_file"
+          
+          echo "Starting deployment to: $target_dir"
           
           sudo mkdir -p "$backup_dir"
           if [ -d "$target_dir" ]; then
-            echo "Creating backup..."
+            echo "Creating backup of existing directory $target_dir..."
             sudo tar -czf "$backup_dir/$(basename "$target_dir").tgz" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
           fi
           
-          echo "Removing old files..."
+          echo "Removing old files at $target_dir..."
           sudo rm -rf "$target_dir"
           
-          echo "Deploying new version..."
+          echo "Deploying new version from $zip_file..."
           # Extract the zip file into ROOT so that the zipped folder (e.g. auth) is created at $ROOT/auth
           sudo mkdir -p "$ROOT"
           sudo unzip -q "$zip_file" -d "$ROOT"
           
-          echo "Setting permissions..."
+          echo "Listing deployed files in $target_dir:"
+          ls -la "$target_dir"
+          
+          echo "Setting permissions on $target_dir..."
           sudo chown -R www-data:www-data "$target_dir"
           sudo find "$target_dir" -type d -exec chmod 755 {} \;
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
