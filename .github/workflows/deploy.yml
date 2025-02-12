@@ -107,6 +107,7 @@ jobs:
           
           echo "Final directory list: $json_dirs"
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
+
   package-plugins:
     name: Create Deployment Packages
     needs: detect-changes
@@ -127,7 +128,7 @@ jobs:
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           
-          # Change into the parent directory of the plugin folder
+          # Change into the parent directory of the plugin folder and zip only the plugin folder.
           cd "$(dirname "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
           
@@ -172,14 +173,13 @@ jobs:
       - name: Safe Deployment
         run: |
           set -eo pipefail
-          # Remove the "plugins/" prefix if present so that the plugin is placed directly under ROOT
+          # Remove the "plugins/" prefix if present so that the plugin is placed in the correct location under ROOT
           deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
           target_dir="$ROOT/$deploy_subdir"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
-          # Compute the safe name and use find to get the zip file path
+          # Compute the safe name and locate the zip file
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "Computed safe_name: $safe_name"
-          ## zip_file=$(find /tmp/deployment -maxdepth 1 -type f -name "${safe_name}-*.zip" | head -n 1)
           zip_file=$(ls -t /tmp/deployment/${safe_name}-*.zip 2>/dev/null | head -n 1)
 
           if [ -z "$zip_file" ]; then
@@ -205,9 +205,10 @@ jobs:
           sudo rm -rf "$target_dir"
           
           echo "Deploying new version from $zip_file..."
-          # Extract the zip file into ROOT so that the zipped folder (e.g. auth) is created at $ROOT/auth
-          sudo mkdir -p "$ROOT"
-          sudo unzip -q "$zip_file" -d "$ROOT"
+          # Since the zip was created from the parent directory, its contents are a single folder.
+          # Extract the zip file into the parent directory of target_dir to ensure the folder is placed correctly.
+          sudo mkdir -p "$(dirname "$target_dir")"
+          sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
           
           echo "Listing deployed files in $target_dir:"
           ls -la "$target_dir"
