@@ -168,3 +168,23 @@ jobs:
             else
               echo "No valid ZIP file found for deployment!"
               exit 1
+
+
+      - name: Deploy to Moodle
+        run: |
+                DEPLOY_DIR="${MOODLE_PATH}/$(dirname '${{ matrix.dir }}')"
+                ZIP_FILE=$(ls -t /tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip | head -n 1)
+                
+                echo "Deploying to directory: $DEPLOY_DIR"
+                echo "ZIP file: $ZIP_FILE"
+            
+                if [[ -f "$ZIP_FILE" ]]; then
+                  sudo mkdir -p "$DEPLOY_DIR"
+                  sudo unzip -qo "$ZIP_FILE" -d "$DEPLOY_DIR"
+                  sudo chown -R www-data:www-data "$DEPLOY_DIR/$(basename '${{ matrix.dir }}')"
+                  echo "Deployment completed for ${{ matrix.dir }}"
+                else
+                  echo "No valid ZIP file found for deployment!"
+                  exit 1
+                fi  
+       
