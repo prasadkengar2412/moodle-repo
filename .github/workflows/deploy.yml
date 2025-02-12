@@ -67,6 +67,7 @@ jobs:
               return
             fi
 
+            # Clean and parse input
             while IFS= read -r file; do
               file=$(echo "$file" | sed 's/^ *//; s/ *$//; s/"//g')
               [[ -z "$file" ]] && continue
@@ -107,7 +108,8 @@ jobs:
           if [[ -z "$dir_list" ]]; then
             json_dirs="[]"
           else
-            json_dirs=$(printf '%s\n' "${dir_list[@]}" | jq -R . | jq -s .)
+            # Use the -c flag to output compact JSON
+            json_dirs=$(jq -nc '$ARGS.positional' --args ${dir_list})
           fi
           
           echo "Final directory list: $json_dirs"
@@ -174,7 +176,7 @@ jobs:
           set -eo pipefail
           target_dir="$ROOT/${{ matrix.dir }}"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
-          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-'))"
+          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-')")"
 
           echo "Starting deployment to: $target_dir"
           
