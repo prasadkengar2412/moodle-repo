@@ -1,4 +1,4 @@
-name: Auto Plugin Deployment
+name: Moodle Plugin Deployment
 
 on:
   push:
@@ -8,213 +8,195 @@ on:
   workflow_dispatch:
     inputs:
       branch:
-        description: 'Select branch to deploy'
+        description: 'Deployment branch'
         required: false
         type: string
         default: ""
 
 env:
-  PROD_MOODLE_ROOT: /var/www/html/moodle-new
-  DEV_MOODLE_ROOT: /var/www/html/moodle-dev
+  PROD_ROOT: /var/www/html/moodle-new
+  DEV_ROOT: /var/www/html/moodle-dev
 
 jobs:
-  find-changed:
-    name: Find Changed Directories
+  detect-changes:
+    name: Identify Changed Plugins
     runs-on: ubuntu-latest
     outputs:
-      changed_dirs: ${{ steps.list_dirs.outputs.changed_dirs }}
+      directories: ${{ steps.process-changes.outputs.dirs }}
     steps:
-      - name: Checkout Code
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-       
 
-      - name: Detect changes in specified directories
-        id: filter
+      - name: Find Changed Files
+        id: file-filter
         uses: dorny/paths-filter@v3
         with:
-          list-files: json
           filters: |
             auth:
-                - "plugins/auth/**"
+              - 'plugins/auth/**'
             blocks:
-                - "plugins/blocks/**"
+              - 'plugins/blocks/**'
             customfield:
-                - "plugins/customfield/**"
+              - 'plugins/customfield/**'
             enrol:
-                - "plugins/enrol/**"
+              - 'plugins/enrol/**'
             local:
-                - "plugins/local/**"
+              - 'plugins/local/**'
             mod:
-                - "plugins/mod/**"
+              - 'plugins/mod/**'
             theme:
-                - "plugins/theme/**"
+              - 'plugins/theme/**'
 
-      - name: Extract changed directories
-        id: list_dirs
+      - name: Process Changes
+        id: process-changes
         run: |
-          echo "Starting directory extraction process..."
+          echo "⏳ Starting change processing..."
           
-          all_changed_files="${{ steps.filter.outputs.auth_files }},${{ steps.filter.outputs.blocks_files }},${{ steps.filter.outputs.customfield_files }},${{ steps.filter.outputs.enrol_files }},${{ steps.filter.outputs.local_files }},${{ steps.filter.outputs.mod_files }},${{ steps.filter.outputs.theme_files }}"
+          # Load all changed files
+          declare -A plugin_map
           
-          echo "Raw changed files: $all_changed_files"
-          
-          # Process and clean file paths
-          dirs=$(echo "$all_changed_files" \
-                  | sed 's/[][]//g' \          # Remove square brackets
-                  | tr ',' '\n' \              # Split into lines
-                  | sed 's/^ *//; s/ *$//' \   # Trim whitespace
-                  | sed 's/"//g' \             # Remove quotes
-                  | grep -v '^$' \             # Remove empty lines
-                  | awk -F/ '{
-                      # Handle full directory deployments
-                      if ($2 == "auth" || $2 == "blocks" || $2 == "theme") {
-                          print $1 "/" $2
-                      }
-                      # Handle subdirectory deployments
-                      else if ($2 == "customfield" || $2 == "enrol" || $2 == "local" || $2 == "mod") {
-                          if (NF >= 3) print $1 "/" $2 "/" $3
-                          else print $0
-                      }
-                      # Fallback for other paths
-                      else {
-                          print $0
-                      }
-                  }' \
-                  | sort -u)
-          
-          echo "Processed directories:"
-          echo "$dirs"
-          
-          # Convert to JSON array
-          if [[ -z "$dirs" ]]; then
-            json="[]"
-            echo "No directories to deploy"
-          else
-            json=$(jq -Rn '[inputs | select(length>0)]' <<< "$dirs")
-            echo "Final JSON output: $json"
-          fi
-          
-          echo "Setting changed_dirs output"
-          echo "changed_dirs=$json" >> "$GITHUB_OUTPUT"
+          process_files() {
+            local json_input=$1
+            while IFS= read -r file; do
+              IFS='/' read -ra parts <<< "$file"
+              
+              if [[ ${#parts[@]} -ge 3 ]]; then
+                case "${parts[1]}" in
+                  auth|blocks|theme)
+                    key="${parts[0]}/${parts[1]}"
+                    ;;
+                  customfield|enrol|local|mod)
+                    key="${parts[0]}/${parts[1]}/${parts[2]}"
+                    ;;
+                  *)
+                    key="$file"
+                    ;;
+                esac
+                plugin_map["$key"]=1
+              fi
+            done < <(jq -r '.[]' <<< "$json_input")
+          }
 
-  package:
-    name: Package Changed Directories
-    needs: find-changed
-    if: ${{ needs.find-changed.outputs.changed_dirs != '[]' }}
+          echo "🔍 Processing auth files..."
+          process_files '${{ steps.file-filter.outputs.auth_files }}'
+          
+          echo "🔍 Processing blocks files..."
+          process_files '${{ steps.file-filter.outputs.blocks_files }}'
+          
+          echo "🔍 Processing customfield files..."
+          process_files '${{ steps.file-filter.outputs.customfield_files }}'
+          
+          echo "🔍 Processing enrol files..."
+          process_files '${{ steps.file-filter.outputs.enrol_files }}'
+          
+          echo "🔍 Processing local files..."
+          process_files '${{ steps.file-filter.outputs.local_files }}'
+          
+          echo "🔍 Processing mod files..."
+          process_files '${{ steps.file-filter.outputs.mod_files }}'
+          
+          echo "🔍 Processing theme files..."
+          process_files '${{ steps.file-filter.outputs.theme_files }}'
+
+          # Generate sorted directory list
+          dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
+          echo "📂 Identified directories:"
+          echo "$dir_list"
+
+          # Create JSON array
+          json_dirs=$(jq -n '$ARGS.positional' --args ${dir_list})
+          echo "✅ Final directory list: $json_dirs"
+          
+          echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
+
+  package-plugins:
+    name: Create Deployment Packages
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: ubuntu-latest
     strategy:
       matrix:
-        dir: ${{ fromJson(needs.find-changed.outputs.changed_dirs) }}
-    runs-on: ubuntu-latest
+        dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        
 
-      - name: Debug matrix directory
+      - name: Create Plugin Bundle
+        id: package
         run: |
-          echo "Processing directory: ${{ matrix.dir }}"
-          echo "Safe name: $(echo "${{ matrix.dir }}" | tr '/' '-')"
-
-      - name: Package Directory
-        id: zip
-        run: |
-          echo "Starting packaging process..."
+          echo "📦 Packaging ${{ matrix.dir }}..."
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           
-          SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
-          ZIP_FILE="${SAFE_NAME}-$(date +'%Y%m%d-%H%M%S').zip"
+          # Create archive maintaining directory structure
+          cd "$(dirname "${{ matrix.dir }}")"
+          zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
           
-          echo "Creating zip file: $ZIP_FILE"
-          echo "Packaging directory: ${{ matrix.dir }}"
-          
-          # Package with proper directory structure
-          cd "${{ matrix.dir }}/.."
-          base_dir=$(basename "${{ matrix.dir }}")
-          zip -qr "${ZIP_FILE}" "$base_dir"
-          mv "${ZIP_FILE}" ../
-          
-          echo "Packaging complete. File size: $(du -h ${ZIP_FILE} | cut -f1)"
-          echo "zip_file=${ZIP_FILE}" >> "$GITHUB_OUTPUT"
-          echo "safe_name=${SAFE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "📄 Created package: $zip_file ($(du -h $zip_file | cut -f1))"
+          echo "zip=$zip_file" >> $GITHUB_OUTPUT
+          echo "name=$safe_name" >> $GITHUB_OUTPUT
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: deployment-package-${{ steps.zip.outputs.safe_name }}
-          path: ${{ steps.zip.outputs.zip_file }}
-          retention-days: 5
+          name: pkg-${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.zip }}
+          retention-days: 3
 
-  deploy:
-    name: Deploy to Moodle Instance
-    needs: [find-changed, package]
-    if: ${{ needs.find-changed.outputs.changed_dirs != '[]' }}
+  deploy-plugins:
+    name: Deploy to Server
+    needs: [detect-changes, package-plugins]
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: self-hosted
     strategy:
       matrix:
-        dir: ${{ fromJson(needs.find-changed.outputs.changed_dirs) }}
-    runs-on: self-hosted
+        dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
     steps:
-      - name: Debug matrix directory
-        run: |
-          echo "Deploying directory: ${{ matrix.dir }}"
-          echo "Safe name: $(echo "${{ matrix.dir }}" | tr '/' '-')"
-
-      - name: Download Artifact
+      - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
-          name: deployment-package-$(echo "${{ matrix.dir }}" | tr '/' '-')
-          path: /tmp
+          name: pkg-$(echo "${{ matrix.dir }}" | tr '/' '-')
+          path: /tmp/deployment
 
-
-      - name: Determine Moodle Root Path
-        id: determine-path
+      - name: Determine Environment
         run: |
-          echo "Determining Moodle root path..."
-          branch="${{ github.event.inputs.branch || github.ref_name }}"
-          case "$branch" in
-            dev)  MOODLE_PATH="${{ env.DEV_MOODLE_ROOT }}" ;;
-            main) MOODLE_PATH="${{ env.PROD_MOODLE_ROOT }}" ;;
-            *) MOODLE_PATH="${{ env.DEV_MOODLE_ROOT }}" ;;
+          case "${{ github.event.inputs.branch || github.ref_name }}" in
+            main) echo "ROOT=$PROD_ROOT" >> $GITHUB_ENV ;;
+            *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
-          echo "Using Moodle path: ${MOODLE_PATH}"
-          echo "MOODLE_PATH=${MOODLE_PATH}" >> "$GITHUB_ENV"
+          echo "🌐 Using deployment root: $ROOT"
 
-      - name: Backup current directory
+      - name: Safe Deployment
         run: |
-          echo "Starting backup process..."
-          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
-          TARGET_DIR="${MOODLE_PATH}/${{ matrix.dir }}"
-          BACKUP_DIR="/tmp/moodle-backups"
-          BACKUP_FILE="${BACKUP_DIR}/$(basename "${{ matrix.dir }}")-${TIMESTAMP}.zip"
+          set -eo pipefail
+          target_dir="$ROOT/${{ matrix.dir }}"
+          backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
+          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-'))"
 
-          echo "Creating backup directory: ${BACKUP_DIR}"
-          sudo mkdir -p "${BACKUP_DIR}"
+          echo "🔄 Starting deployment to: $target_dir"
           
-          if [ -d "${TARGET_DIR}" ]; then
-            echo "Backing up existing directory: ${TARGET_DIR}"
-            sudo zip -rq "${BACKUP_FILE}" "${TARGET_DIR}"
-            echo "Backup created: ${BACKUP_FILE}"
-            echo "Backup size: $(du -h ${BACKUP_FILE} | cut -f1)"
-          else
-            echo "No existing directory to backup: ${TARGET_DIR}"
+          # Create backup
+          sudo mkdir -p "$backup_dir"
+          if [ -d "$target_dir" ]; then
+            echo "📂 Creating backup..."
+            sudo tar -czf "$backup_dir/$(basename "$target_dir").tgz" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
           fi
-
-      - name: Deploy to Moodle
-        run: |
-          echo "Starting deployment process..."
-          DEPLOY_DIR="${MOODLE_PATH}/$(dirname "${{ matrix.dir }}")"
-          ZIP_FILE="/tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip"
           
-          echo "Deploying to: ${DEPLOY_DIR}"
-          echo "Using zip file: ${ZIP_FILE}"
-
-          echo "Creating target directory if needed"
-          sudo mkdir -p "${DEPLOY_DIR}"
+          # Clean deployment
+          echo "🧹 Removing old files..."
+          sudo rm -rf "$target_dir"
           
-          echo "Unzipping package..."
-          sudo unzip -qo ${ZIP_FILE} -d "${DEPLOY_DIR}"
+          # Extract new files
+          echo "🚚 Deploying new version..."
+          sudo mkdir -p "$(dirname "$target_dir")"
+          sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
           
-          echo "Setting permissions..."
-          sudo chown -R www-data:www-data "${DEPLOY_DIR}/$(basename "${{ matrix.dir }}")"
+          # Set permissions
+          echo "🔒 Setting permissions..."
+          sudo chown -R www-data:www-data "$target_dir"
+          sudo find "$target_dir" -type d -exec chmod 755 {} \;
+          sudo find "$target_dir" -type f -exec chmod 644 {} \;
           
-          echo "Deployment completed successfully for ${{ matrix.dir }}"
+          echo "🎉 Successfully deployed ${{ matrix.dir }}!"
