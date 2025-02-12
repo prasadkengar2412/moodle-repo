@@ -133,6 +133,7 @@ jobs:
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           
+          # Change into the parent directory of the plugin folder
           cd "$(dirname "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
           
@@ -175,15 +176,17 @@ jobs:
             main) echo "ROOT=$PROD_ROOT" >> $GITHUB_ENV ;;
             *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
-          echo "Using deployment root: $ROOT"
+          echo "Using deployment root: $(grep '^ROOT=' $GITHUB_ENV)"
 
       - name: Safe Deployment
         run: |
           set -eo pipefail
-          # Compute the safe name again for use in this script
-          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
-          target_dir="$ROOT/${{ matrix.dir }}"
+          # Remove the "plugins/" prefix if present so that on the server the plugin is placed directly
+          deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
+          target_dir="$ROOT/$deploy_subdir"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
+          # Use the safe name (computed from the full matrix.dir) to find the artifact zip file
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$safe_name")"
 
           echo "Starting deployment to: $target_dir"
@@ -198,12 +201,13 @@ jobs:
           sudo rm -rf "$target_dir"
           
           echo "Deploying new version..."
-          sudo mkdir -p "$(dirname "$target_dir")"
-          sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
+          # Extract the zip file into ROOT so that the zipped folder (e.g. auth) is created at $ROOT/auth
+          sudo mkdir -p "$ROOT"
+          sudo unzip -q "$zip_file" -d "$ROOT"
           
           echo "Setting permissions..."
           sudo chown -R www-data:www-data "$target_dir"
           sudo find "$target_dir" -type d -exec chmod 755 {} \;
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
           
-          echo "Successfully deployed ${{ matrix.dir }}!"
+          echo "Successfully deployed $deploy_subdir!"
