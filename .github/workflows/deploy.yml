@@ -15,6 +15,7 @@ on:
 
 env:
   PROD_MOODLE_ROOT: /var/www/html/moodle-new
+  DEV_MOODLE_ROOT: /var/www/html/moodle-dev
 
 jobs:
   find-changed:
@@ -50,25 +51,15 @@ jobs:
       - name: Extract changed directories
         id: list_dirs
         run: |
-          echo "Changed files detected: ${{ steps.filter.outputs.mod_files }}"
-          echo "Changed files detected: ${{ steps.filter.outputs.auth_files }}"
-          echo "Changed files detected: ${{ steps.filter.outputs.blocks_files }}"
-          echo "Changed files detected: ${{ steps.filter.outputs.customfield_files }}"
-          echo "Changed files detected: ${{ steps.filter.outputs.enrol_files }}"
-          echo "Changed files detected: ${{ steps.filter.outputs.local_files }}"
-          echo "Changed files detected: ${{ steps.filter.outputs.theme_files }}"
-          
-          all_changed_files="${{ steps.filter.outputs.mod_files }},${{ steps.filter.outputs.auth_files }},${{ steps.filter.outputs.blocks_files }},${{ steps.filter.outputs.customfield_files }},${{ steps.filter.outputs.enrol_files }},${{ steps.filter.outputs.local_files }},${{ steps.filter.outputs.theme_files }}"
+          all_changed_files="${{ steps.filter.outputs.auth_files }},${{ steps.filter.outputs.blocks_files }},${{ steps.filter.outputs.customfield_files }},${{ steps.filter.outputs.enrol_files }},${{ steps.filter.outputs.local_files }},${{ steps.filter.outputs.mod_files }},${{ steps.filter.outputs.theme_files }}"
 
           dirs=$(echo "$all_changed_files" \
                   | sed 's/[][]//g' \
                   | tr ',' '\n' \
                   | sed 's/^ *//; s/ *$//' \
                   | sed -E 's|^([^/]+/[^/]+).*|\1|' \
-                  | sort -u)
-          echo "Raw detected directories:"
-          echo "$dirs"
-          
+                  | grep -v '^$' | sort -u)
+
           if [[ -z "$dirs" ]]; then
             json="[]"
           else
@@ -92,8 +83,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Debug changed_dirs
-        run: |
-          echo "Changed directories: ${{ needs.find-changed.outputs.changed_dirs }}"
+        run: echo "Changed directories: ${{ needs.find-changed.outputs.changed_dirs }}"
 
       - name: Package Directory
         id: zip
@@ -101,7 +91,6 @@ jobs:
           SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
           ZIP_FILE="${SAFE_NAME}-$(date +'%Y%m%d-%H%M%S').zip"
 
-          # Navigate into the directory and zip only its contents
           cd "${{ matrix.dir }}"
           zip -qr "../../$ZIP_FILE" . 
           cd -
