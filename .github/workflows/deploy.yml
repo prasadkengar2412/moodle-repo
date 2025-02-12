@@ -26,6 +26,8 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Detect changes in specified directories
         id: filter
@@ -47,7 +49,7 @@ jobs:
                 - "plugins/mod/**"
             theme:
                 - "plugins/theme/**"
-            
+
       - name: Extract changed directories
         id: list_dirs
         run: |
@@ -57,27 +59,36 @@ jobs:
                   | sed 's/[][]//g' \
                   | tr ',' '\n' \
                   | sed 's/^ *//; s/ *$//' \
-                  | sed -E 's|^([^/]+/[^/]+).*|\1|' \
-                  | grep -v '^$' | sort -u)
+                  | grep -v '^$' \
+                  | awk -F/ '{
+                      if ($2 == "auth" || $2 == "blocks" || $2 == "theme") {
+                          print $1 "/" $2
+                      }
+                      else if ($2 == "customfield" || $2 == "enrol" || $2 == "local" || $2 == "mod") {
+                          if (NF >= 3) print $1 "/" $2 "/" $3
+                          else print $0
+                      }
+                      else {
+                          print $0
+                      }
+                  }' \
+                  | sort -u)
 
           if [[ -z "$dirs" ]]; then
             json="[]"
           else
-            json=$(printf '%s\n' "$dirs" | jq -R . | jq -s -c .)
+            json=$(jq -Rn '[inputs | select(length>0)]' <<< "$dirs")
           fi
-          echo "Detected directories: $json"
           echo "changed_dirs=$json" >> "$GITHUB_OUTPUT"
-          
+
   package:
     name: Package Changed Directories
     needs: find-changed
-    if: ${{ needs.find-changed.outputs.changed_dirs != '[]' && needs.find-changed.outputs.changed_dirs != '' }}
+    if: ${{ needs.find-changed.outputs.changed_dirs != '[]' }}
     strategy:
       matrix:
-        dir: ${{ fromJson(needs.find-changed.outputs.changed_dirs || '[]') }}
+        dir: ${{ fromJson(needs.find-changed.outputs.changed_dirs) }}
     runs-on: ubuntu-latest
-    outputs:
-      safe_name: ${{ steps.zip.outputs.safe_name }}
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -87,11 +98,11 @@ jobs:
         run: |
           SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
           ZIP_FILE="${SAFE_NAME}-$(date +'%Y%m%d-%H%M%S').zip"
-
+          
           cd "${{ matrix.dir }}"
-          zip -qr "../../$ZIP_FILE" . 
+          zip -qr "../../$ZIP_FILE" .
           cd -
-
+          
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
           echo "safe_name=$SAFE_NAME" >> "$GITHUB_OUTPUT"
 
@@ -105,22 +116,16 @@ jobs:
   deploy:
     name: Deploy to Moodle Instance
     needs: [find-changed, package]
-    if: ${{ needs.find-changed.outputs.changed_dirs != '[]' && needs.find-changed.outputs.changed_dirs != '' }}
+    if: ${{ needs.find-changed.outputs.changed_dirs != '[]' }}
     strategy:
       matrix:
-        dir: ${{ fromJson(needs.find-changed.outputs.changed_dirs || '[]') }}
+        dir: ${{ fromJson(needs.find-changed.outputs.changed_dirs) }}
     runs-on: self-hosted
     steps:
-      - name: Log Matrix Directory
-        run: |
-          SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
-          echo "Matrix directory: ${{ matrix.dir }}"
-          echo "Safe directory name: $SAFE_NAME"
-
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
-          name: deployment-package-${{ needs.package.outputs.safe_name }}
+          name: deployment-package-$(echo "${{ matrix.dir }}" | tr '/' '-')
           path: /tmp
 
       - name: Determine Moodle Root Path
@@ -132,59 +137,38 @@ jobs:
             main) MOODLE_PATH=${{ env.PROD_MOODLE_ROOT }} ;;
             *) MOODLE_PATH=${{ env.DEV_MOODLE_ROOT }} ;;
           esac
-          echo "Moodle root path: $MOODLE_PATH"
           echo "MOODLE_PATH=$MOODLE_PATH" >> "$GITHUB_ENV"
 
       - name: Backup current directory
         run: |
-            TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
-            TARGET_DIR="${MOODLE_PATH}/${{ matrix.dir }}"
-            BACKUP_DIR="/tmp/moodle-backup"
-            BACKUP_FILE="${BACKUP_DIR}/$(basename '${{ matrix.dir }}')-backup-${TIMESTAMP}.zip"
-        
-            echo "Ensuring backup directory exists: $BACKUP_DIR"
-            sudo mkdir -p "$BACKUP_DIR"
-        
-            echo "Backing up directory: $TARGET_DIR"
-            echo "Backup file: $BACKUP_FILE"
-            if [ -d "$TARGET_DIR" ]; then
-              sudo zip -r "$BACKUP_FILE" "$TARGET_DIR"
-              echo "Backup created at $BACKUP_FILE"
-            else
-              echo "No existing directory found at $TARGET_DIR, skipping backup."
-            fi        
+          TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
+          TARGET_DIR="$MOODLE_PATH/${{ matrix.dir }}"
+          BACKUP_DIR="/tmp/moodle-backup"
+          BACKUP_FILE="${BACKUP_DIR}/$(basename "${{ matrix.dir }}")-backup-${TIMESTAMP}.zip"
+          
+          sudo mkdir -p "$BACKUP_DIR"
+          if [ -d "$TARGET_DIR" ]; then
+            sudo zip -rq "$BACKUP_FILE" "$TARGET_DIR"
+            echo "Created backup: $BACKUP_FILE"
+          else
+            echo "No existing directory to backup: $TARGET_DIR"
+          fi
 
       - name: Deploy to Moodle
         run: |
-            DEPLOY_DIR="${MOODLE_PATH}/$(dirname ${{ matrix.dir }})"
-            ZIP_FILE=$(ls -t /tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip | head -n 1)
-            echo "Deploying to directory: $DEPLOY_DIR"
-            echo "ZIP file: $ZIP_FILE"
-        
-            if [[ -f "$ZIP_FILE" ]]; then
-              sudo unzip -qo "$ZIP_FILE" -d "$DEPLOY_DIR"
-              sudo chown -R www-data:www-data "$DEPLOY_DIR/$(basename ${{ matrix.dir }})"
-              echo "Deployment completed for ${{ matrix.dir }}"
-            else
-              echo "No valid ZIP file found for deployment!"
-              exit 1
-
-
-      - name: Deploy to Moodle
-        run: |
-                DEPLOY_DIR="${MOODLE_PATH}/$(dirname '${{ matrix.dir }}')"
-                ZIP_FILE=$(ls -t /tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip | head -n 1)
-                
-                echo "Deploying to directory: $DEPLOY_DIR"
-                echo "ZIP file: $ZIP_FILE"
-            
-                if [[ -f "$ZIP_FILE" ]]; then
-                  sudo mkdir -p "$DEPLOY_DIR"
-                  sudo unzip -qo "$ZIP_FILE" -d "$DEPLOY_DIR"
-                  sudo chown -R www-data:www-data "$DEPLOY_DIR/$(basename '${{ matrix.dir }}')"
-                  echo "Deployment completed for ${{ matrix.dir }}"
-                else
-                  echo "No valid ZIP file found for deployment!"
-                  exit 1
-                fi  
-       
+          DEPLOY_DIR="$MOODLE_PATH/$(dirname "${{ matrix.dir }}")"
+          ZIP_PATTERN="/tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip"
+          ZIP_FILE=$(ls -t $ZIP_PATTERN | head -n1)
+          
+          echo "Deploying to: $DEPLOY_DIR"
+          echo "Using zip file: $ZIP_FILE"
+          
+          if [ -f "$ZIP_FILE" ]; then
+            sudo mkdir -p "$DEPLOY_DIR"
+            sudo unzip -qo "$ZIP_FILE" -d "$DEPLOY_DIR"
+            sudo chown -R www-data:www-data "$DEPLOY_DIR/$(basename "${{ matrix.dir }}")"
+            echo "Successfully deployed ${{ matrix.dir }}"
+          else
+            echo "Error: Missing deployment package!"
+            exit 1
+          fi
