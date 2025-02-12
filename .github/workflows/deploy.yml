@@ -55,30 +55,38 @@ jobs:
         run: |
           all_changed_files="${{ steps.filter.outputs.auth_files }},${{ steps.filter.outputs.blocks_files }},${{ steps.filter.outputs.customfield_files }},${{ steps.filter.outputs.enrol_files }},${{ steps.filter.outputs.local_files }},${{ steps.filter.outputs.mod_files }},${{ steps.filter.outputs.theme_files }}"
 
+          # Process and clean file paths
           dirs=$(echo "$all_changed_files" \
-                  | sed 's/[][]//g' \
-                  | tr ',' '\n' \
-                  | sed 's/^ *//; s/ *$//' \
-                  | grep -v '^$' \
+                  | sed 's/[][]//g' \          # Remove square brackets
+                  | tr ',' '\n' \              # Split into lines
+                  | sed 's/^ *//; s/ *$//' \   # Trim whitespace
+                  | sed 's/"//g' \             # Remove quotes
+                  | grep -v '^$' \             # Remove empty lines
                   | awk -F/ '{
+                      # Handle full directory deployments
                       if ($2 == "auth" || $2 == "blocks" || $2 == "theme") {
                           print $1 "/" $2
                       }
+                      # Handle subdirectory deployments
                       else if ($2 == "customfield" || $2 == "enrol" || $2 == "local" || $2 == "mod") {
                           if (NF >= 3) print $1 "/" $2 "/" $3
                           else print $0
                       }
+                      # Fallback for other paths
                       else {
                           print $0
                       }
                   }' \
                   | sort -u)
 
+          # Convert to JSON array
           if [[ -z "$dirs" ]]; then
             json="[]"
           else
             json=$(jq -Rn '[inputs | select(length>0)]' <<< "$dirs")
           fi
+
+          echo "Final directories: $json"
           echo "changed_dirs=$json" >> "$GITHUB_OUTPUT"
 
   package:
@@ -98,13 +106,15 @@ jobs:
         run: |
           SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
           ZIP_FILE="${SAFE_NAME}-$(date +'%Y%m%d-%H%M%S').zip"
+
+          # Package with proper directory structure
+          cd "${{ matrix.dir }}/.."
+          base_dir=$(basename "${{ matrix.dir }}")
+          zip -qr "${ZIP_FILE}" "$base_dir"
+          mv "${ZIP_FILE}" ../
           
-          cd "${{ matrix.dir }}"
-          zip -qr "../../$ZIP_FILE" .
-          cd -
-          
-          echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
-          echo "safe_name=$SAFE_NAME" >> "$GITHUB_OUTPUT"
+          echo "zip_file=${ZIP_FILE}" >> "$GITHUB_OUTPUT"
+          echo "safe_name=${SAFE_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -133,42 +143,36 @@ jobs:
         run: |
           branch="${{ github.event.inputs.branch || github.ref_name }}"
           case "$branch" in
-            dev)  MOODLE_PATH=${{ env.DEV_MOODLE_ROOT }} ;;
-            main) MOODLE_PATH=${{ env.PROD_MOODLE_ROOT }} ;;
-            *) MOODLE_PATH=${{ env.DEV_MOODLE_ROOT }} ;;
+            dev)  MOODLE_PATH="${{ env.DEV_MOODLE_ROOT }}" ;;
+            main) MOODLE_PATH="${{ env.PROD_MOODLE_ROOT }}" ;;
+            *) MOODLE_PATH="${{ env.DEV_MOODLE_ROOT }}" ;;
           esac
-          echo "MOODLE_PATH=$MOODLE_PATH" >> "$GITHUB_ENV"
+          echo "MOODLE_PATH=${MOODLE_PATH}" >> "$GITHUB_ENV"
 
       - name: Backup current directory
         run: |
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
-          TARGET_DIR="$MOODLE_PATH/${{ matrix.dir }}"
-          BACKUP_DIR="/tmp/moodle-backup"
-          BACKUP_FILE="${BACKUP_DIR}/$(basename "${{ matrix.dir }}")-backup-${TIMESTAMP}.zip"
-          
-          sudo mkdir -p "$BACKUP_DIR"
-          if [ -d "$TARGET_DIR" ]; then
-            sudo zip -rq "$BACKUP_FILE" "$TARGET_DIR"
-            echo "Created backup: $BACKUP_FILE"
+          TARGET_DIR="${MOODLE_PATH}/${{ matrix.dir }}"
+          BACKUP_DIR="/tmp/moodle-backups"
+          BACKUP_FILE="${BACKUP_DIR}/$(basename "${{ matrix.dir }}")-${TIMESTAMP}.zip"
+
+          sudo mkdir -p "${BACKUP_DIR}"
+          if [ -d "${TARGET_DIR}" ]; then
+            sudo zip -rq "${BACKUP_FILE}" "${TARGET_DIR}"
+            echo "Created backup: ${BACKUP_FILE}"
           else
-            echo "No existing directory to backup: $TARGET_DIR"
+            echo "No existing directory to backup: ${TARGET_DIR}"
           fi
 
       - name: Deploy to Moodle
         run: |
-          DEPLOY_DIR="$MOODLE_PATH/$(dirname "${{ matrix.dir }}")"
-          ZIP_PATTERN="/tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip"
-          ZIP_FILE=$(ls -t $ZIP_PATTERN | head -n1)
+          DEPLOY_DIR="${MOODLE_PATH}/$(dirname "${{ matrix.dir }}")"
+          ZIP_FILE="/tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip"
           
-          echo "Deploying to: $DEPLOY_DIR"
-          echo "Using zip file: $ZIP_FILE"
-          
-          if [ -f "$ZIP_FILE" ]; then
-            sudo mkdir -p "$DEPLOY_DIR"
-            sudo unzip -qo "$ZIP_FILE" -d "$DEPLOY_DIR"
-            sudo chown -R www-data:www-data "$DEPLOY_DIR/$(basename "${{ matrix.dir }}")"
-            echo "Successfully deployed ${{ matrix.dir }}"
-          else
-            echo "Error: Missing deployment package!"
-            exit 1
-          fi
+          echo "Deploying to: ${DEPLOY_DIR}"
+          echo "Using zip file: ${ZIP_FILE}"
+
+          sudo mkdir -p "${DEPLOY_DIR}"
+          sudo unzip -qo ${ZIP_FILE} -d "${DEPLOY_DIR}"
+          sudo chown -R www-data:www-data "${DEPLOY_DIR}/$(basename "${{ matrix.dir }}")"
+          echo "Successfully deployed ${{ matrix.dir }}"
