@@ -133,11 +133,9 @@ jobs:
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           
-          # Change to the parent directory of the plugin
           cd "$(dirname "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
           
-          # Record the full path to the created zip file
           zip_path="$(pwd)/$zip_file"
           echo "Created package: $zip_path ($(du -h "$zip_path" | cut -f1))"
           echo "zip=$zip_path" >> $GITHUB_OUTPUT
@@ -162,7 +160,7 @@ jobs:
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
-          name: pkg-$(echo "${{ matrix.dir }}" | tr '/' '-')
+          name: pkg-${{ replace(matrix.dir, '/', '-') }}
           path: /tmp/deployment
 
       - name: Determine Environment
@@ -176,9 +174,10 @@ jobs:
       - name: Safe Deployment
         run: |
           set -eo pipefail
+          safe_name="${{ replace(matrix.dir, '/', '-') }}"
           target_dir="$ROOT/${{ matrix.dir }}"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
-          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$(echo "${{ matrix.dir }}" | tr '/' '-')")"
+          zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$safe_name")"
 
           echo "Starting deployment to: $target_dir"
           
