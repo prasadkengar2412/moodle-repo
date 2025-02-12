@@ -179,7 +179,7 @@ jobs:
           # Compute the safe name and use find to get the zip file path
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "Computed safe_name: $safe_name"
-          zip_file=$(find /tmp/deployment -maxdepth 1 -type f -name "${safe_name}-*.zip" | head -n 1)
+          ## zip_file=$(find /tmp/deployment -maxdepth 1 -type f -name "${safe_name}-*.zip" | head -n 1)
           zip_file=$(ls -t /tmp/deployment/${safe_name}-*.zip 2>/dev/null | head -n 1)
 
           if [ -z "$zip_file" ]; then
