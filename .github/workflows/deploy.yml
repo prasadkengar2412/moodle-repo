@@ -49,7 +49,6 @@ jobs:
               - 'plugins/mod/**'
             theme:
               - 'plugins/theme/**'
-
       - name: Process Changes
         id: process-changes
         run: |
@@ -66,7 +65,6 @@ jobs:
               echo "No files found for $filter_name"
               return
             fi
-
             while IFS= read -r file; do
               file=$(echo "$file" | sed 's/^ *//; s/ *$//; s/"//g')
               [[ -z "$file" ]] && continue
@@ -91,7 +89,6 @@ jobs:
               fi
             done < <(echo "$raw_input" | sed 's/[][]//g' | tr ',' '\n')
           }
-
           process_files "auth" "${{ steps.file-filter.outputs.auth_files }}"
           process_files "blocks" "${{ steps.file-filter.outputs.blocks_files }}"
           process_files "customfield" "${{ steps.file-filter.outputs.customfield_files }}"
@@ -99,11 +96,9 @@ jobs:
           process_files "local" "${{ steps.file-filter.outputs.local_files }}"
           process_files "mod" "${{ steps.file-filter.outputs.mod_files }}"
           process_files "theme" "${{ steps.file-filter.outputs.theme_files }}"
-
           dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
           echo "Identified directories:"
           echo "$dir_list"
-
           if [[ -z "$dir_list" ]]; then
             json_dirs="[]"
           else
@@ -112,7 +107,6 @@ jobs:
           
           echo "Final directory list: $json_dirs"
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
-
   package-plugins:
     name: Create Deployment Packages
     needs: detect-changes
@@ -135,17 +129,12 @@ jobs:
           
           # Change into the parent directory of the plugin folder
           cd "$(dirname "${{ matrix.dir }}")"
-          echo "Current directory: $(pwd)"
-          echo "Listing contents before zipping:"
-          ls -la
-          echo "Zipping folder: $(basename "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
           
           zip_path="$(pwd)/$zip_file"
           echo "Created package: $zip_path ($(du -h "$zip_path" | cut -f1))"
           echo "zip=$zip_path" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -167,7 +156,6 @@ jobs:
         run: |
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
-
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
@@ -181,11 +169,10 @@ jobs:
             *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
           echo "Using deployment root: $(grep '^ROOT=' $GITHUB_ENV)"
-
       - name: Safe Deployment
         run: |
           set -eo pipefail
-          # Remove the "plugins/" prefix so that the plugin is deployed directly under ROOT
+          # Remove the "plugins/" prefix if present so that the plugin is placed directly under ROOT
           deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
           target_dir="$ROOT/$deploy_subdir"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
@@ -193,7 +180,8 @@ jobs:
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "Computed safe_name: $safe_name"
           zip_file=$(find /tmp/deployment -maxdepth 1 -type f -name "${safe_name}-*.zip" | head -n 1)
-          
+          zip_file=$(ls -t /tmp/deployment/${safe_name}-*.zip 2>/dev/null | head -n 1)
+
           if [ -z "$zip_file" ]; then
             echo "Error: Zip file for $safe_name not found in /tmp/deployment"
             exit 1
@@ -205,10 +193,11 @@ jobs:
           echo "Listing contents of zip file:"
           unzip -l "$zip_file"
           
-          echo "Creating backup of existing directory (if it exists)..."
+          echo "Starting deployment to: $target_dir"
+          
           sudo mkdir -p "$backup_dir"
           if [ -d "$target_dir" ]; then
-            echo "Backing up $target_dir..."
+            echo "Creating backup of existing directory $target_dir..."
             sudo tar -czf "$backup_dir/$(basename "$target_dir").tgz" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
           fi
           
@@ -216,11 +205,12 @@ jobs:
           sudo rm -rf "$target_dir"
           
           echo "Deploying new version from $zip_file..."
+          # Extract the zip file into ROOT so that the zipped folder (e.g. auth) is created at $ROOT/auth
           sudo mkdir -p "$ROOT"
           sudo unzip -q "$zip_file" -d "$ROOT"
           
-          echo "Listing deployed files in ROOT ($ROOT):"
-          ls -laR "$ROOT"
+          echo "Listing deployed files in $target_dir:"
+          ls -la "$target_dir"
           
           echo "Setting permissions on $target_dir..."
           sudo chown -R www-data:www-data "$target_dir"
