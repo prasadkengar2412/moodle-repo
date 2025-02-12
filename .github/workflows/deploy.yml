@@ -28,7 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-        shell: bash
+       
 
       - name: Detect changes in specified directories
         id: filter
@@ -110,7 +110,7 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        shell: bash
+        
 
       - name: Debug matrix directory
         run: |
@@ -164,7 +164,7 @@ jobs:
         with:
           name: deployment-package-$(echo "${{ matrix.dir }}" | tr '/' '-')
           path: /tmp
-        shell: bash
+
 
       - name: Determine Moodle Root Path
         id: determine-path
