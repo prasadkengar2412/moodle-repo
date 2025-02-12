@@ -32,21 +32,20 @@ jobs:
         with:
           list-files: json
           filters: |
-            auth:
-              - "auth/**"
-            blocks:
-              - "blocks/**"
-            customfield:
-              - "customfield/**"
-            enrol:
-              - "enrol/**"
-            local:
-              - "local/**"
-            mod:
-              - "mod/**"
-            theme:
-              - "theme/**"
-            
+                  auth:
+                    - "auth/**"
+                  blocks:
+                    - "blocks/**"
+                  customfield:
+                    - "customfield/**"
+                  enrol:
+                    - "enrol/**"
+                  local:
+                    - "local/**"
+                  mod:
+                    - "mod/**"
+                  theme:
+                    - "theme/**"
             
       - name: Extract changed directories
         id: list_dirs
