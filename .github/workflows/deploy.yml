@@ -91,6 +91,10 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Debug changed_dirs
+        run: |
+          echo "Changed directories: ${{ needs.find-changed.outputs.changed_dirs }}"
+
       - name: Package Directory
         id: zip
         run: |
@@ -104,7 +108,6 @@ jobs:
 
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
           echo "safe_name=$SAFE_NAME" >> "$GITHUB_OUTPUT"
-
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -127,12 +130,12 @@ jobs:
           SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "Matrix directory: ${{ matrix.dir }}"
           echo "Safe directory name: $SAFE_NAME"
+
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
           name: deployment-package-${{ needs.package.outputs.safe_name }}
           path: /tmp
-            
 
       - name: Determine Moodle Root Path
         id: determine-path
@@ -145,6 +148,7 @@ jobs:
           esac
           echo "Moodle root path: $MOODLE_PATH"
           echo "MOODLE_PATH=$MOODLE_PATH" >> "$GITHUB_ENV"
+
       - name: Backup current directory
         run: |
             TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
@@ -163,6 +167,7 @@ jobs:
             else
               echo "No existing directory found at $TARGET_DIR, skipping backup."
             fi        
+
       - name: Deploy to Moodle
         run: |
             DEPLOY_DIR="${MOODLE_PATH}/$(dirname ${{ matrix.dir }})"
@@ -177,5 +182,3 @@ jobs:
             else
               echo "No valid ZIP file found for deployment!"
               exit 1
-            fi
-        
