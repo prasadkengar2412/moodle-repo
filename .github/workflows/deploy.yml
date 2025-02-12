@@ -32,20 +32,20 @@ jobs:
         with:
           list-files: json
           filters: |
-                  auth:
-                    - "auth/**"
-                  blocks:
-                    - "blocks/**"
-                  customfield:
-                    - "customfield/**"
-                  enrol:
-                    - "enrol/**"
-                  local:
-                    - "local/**"
-                  mod:
-                    - "plugins/mod/**"
-                  theme:
-                    - "theme/**"
+            auth:
+                - "plugins/auth/**"
+            blocks:
+                - "plugins/blocks/**"
+            customfield:
+                - "plugins/customfield/**"
+            enrol:
+                - "plugins/enrol/**"
+            local:
+                - "plugins/local/**"
+            mod:
+                - "plugins/mod/**"
+            theme:
+                - "plugins/theme/**"
             
       - name: Extract changed directories
         id: list_dirs
@@ -96,15 +96,12 @@ jobs:
         run: |
           SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
           ZIP_FILE="${SAFE_NAME}-$(date +'%Y%m%d-%H%M%S').zip"
-      
-          
-          BASE_DIR=$(basename "${{ matrix.dir }}")
-      
-                                                                    
-          cd "$(dirname "${{ matrix.dir }}")"
-          zip -qr "../$ZIP_FILE" "$BASE_DIR"
+
+          # Navigate into the directory and zip only its contents
+          cd "${{ matrix.dir }}"
+          zip -qr "../../$ZIP_FILE" . 
           cd -
-          
+
           echo "zip_file=$ZIP_FILE" >> "$GITHUB_OUTPUT"
           echo "safe_name=$SAFE_NAME" >> "$GITHUB_OUTPUT"
 
