@@ -67,7 +67,6 @@ jobs:
               return
             fi
 
-            # Clean and parse input
             while IFS= read -r file; do
               file=$(echo "$file" | sed 's/^ *//; s/ *$//; s/"//g')
               [[ -z "$file" ]] && continue
@@ -130,6 +129,7 @@ jobs:
         id: package
         run: |
           echo "Packaging ${{ matrix.dir }}..."
+          # Compute a safe name by replacing '/' with '-'
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           
@@ -157,10 +157,16 @@ jobs:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
     steps:
+      - name: Compute Safe Name
+        id: compute-safe
+        run: |
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
+
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
-          name: pkg-${{ replace(matrix.dir, '/', '-') }}
+          name: pkg-${{ steps.compute-safe.outputs.safe_name }}
           path: /tmp/deployment
 
       - name: Determine Environment
@@ -174,7 +180,8 @@ jobs:
       - name: Safe Deployment
         run: |
           set -eo pipefail
-          safe_name="${{ replace(matrix.dir, '/', '-') }}"
+          # Compute the safe name again for use in this script
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           target_dir="$ROOT/${{ matrix.dir }}"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
           zip_file="/tmp/deployment/$(ls /tmp/deployment | grep -F "$safe_name")"
