@@ -82,9 +82,6 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
 
-      - name: Debug changed_dirs
-        run: echo "Changed directories: ${{ needs.find-changed.outputs.changed_dirs }}"
-
       - name: Package Directory
         id: zip
         run: |
