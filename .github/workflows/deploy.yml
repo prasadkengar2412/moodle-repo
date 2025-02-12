@@ -28,6 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+        shell: bash
 
       - name: Detect changes in specified directories
         id: filter
@@ -53,8 +54,12 @@ jobs:
       - name: Extract changed directories
         id: list_dirs
         run: |
+          echo "Starting directory extraction process..."
+          
           all_changed_files="${{ steps.filter.outputs.auth_files }},${{ steps.filter.outputs.blocks_files }},${{ steps.filter.outputs.customfield_files }},${{ steps.filter.outputs.enrol_files }},${{ steps.filter.outputs.local_files }},${{ steps.filter.outputs.mod_files }},${{ steps.filter.outputs.theme_files }}"
-
+          
+          echo "Raw changed files: $all_changed_files"
+          
           # Process and clean file paths
           dirs=$(echo "$all_changed_files" \
                   | sed 's/[][]//g' \          # Remove square brackets
@@ -78,15 +83,20 @@ jobs:
                       }
                   }' \
                   | sort -u)
-
+          
+          echo "Processed directories:"
+          echo "$dirs"
+          
           # Convert to JSON array
           if [[ -z "$dirs" ]]; then
             json="[]"
+            echo "No directories to deploy"
           else
             json=$(jq -Rn '[inputs | select(length>0)]' <<< "$dirs")
+            echo "Final JSON output: $json"
           fi
-
-          echo "Final directories: $json"
+          
+          echo "Setting changed_dirs output"
           echo "changed_dirs=$json" >> "$GITHUB_OUTPUT"
 
   package:
@@ -100,19 +110,31 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
+        shell: bash
+
+      - name: Debug matrix directory
+        run: |
+          echo "Processing directory: ${{ matrix.dir }}"
+          echo "Safe name: $(echo "${{ matrix.dir }}" | tr '/' '-')"
 
       - name: Package Directory
         id: zip
         run: |
+          echo "Starting packaging process..."
+          
           SAFE_NAME=$(echo "${{ matrix.dir }}" | tr '/' '-')
           ZIP_FILE="${SAFE_NAME}-$(date +'%Y%m%d-%H%M%S').zip"
-
+          
+          echo "Creating zip file: $ZIP_FILE"
+          echo "Packaging directory: ${{ matrix.dir }}"
+          
           # Package with proper directory structure
           cd "${{ matrix.dir }}/.."
           base_dir=$(basename "${{ matrix.dir }}")
           zip -qr "${ZIP_FILE}" "$base_dir"
           mv "${ZIP_FILE}" ../
           
+          echo "Packaging complete. File size: $(du -h ${ZIP_FILE} | cut -f1)"
           echo "zip_file=${ZIP_FILE}" >> "$GITHUB_OUTPUT"
           echo "safe_name=${SAFE_NAME}" >> "$GITHUB_OUTPUT"
 
@@ -132,47 +154,67 @@ jobs:
         dir: ${{ fromJson(needs.find-changed.outputs.changed_dirs) }}
     runs-on: self-hosted
     steps:
+      - name: Debug matrix directory
+        run: |
+          echo "Deploying directory: ${{ matrix.dir }}"
+          echo "Safe name: $(echo "${{ matrix.dir }}" | tr '/' '-')"
+
       - name: Download Artifact
         uses: actions/download-artifact@v4
         with:
           name: deployment-package-$(echo "${{ matrix.dir }}" | tr '/' '-')
           path: /tmp
+        shell: bash
 
       - name: Determine Moodle Root Path
         id: determine-path
         run: |
+          echo "Determining Moodle root path..."
           branch="${{ github.event.inputs.branch || github.ref_name }}"
           case "$branch" in
             dev)  MOODLE_PATH="${{ env.DEV_MOODLE_ROOT }}" ;;
             main) MOODLE_PATH="${{ env.PROD_MOODLE_ROOT }}" ;;
             *) MOODLE_PATH="${{ env.DEV_MOODLE_ROOT }}" ;;
           esac
+          echo "Using Moodle path: ${MOODLE_PATH}"
           echo "MOODLE_PATH=${MOODLE_PATH}" >> "$GITHUB_ENV"
 
       - name: Backup current directory
         run: |
+          echo "Starting backup process..."
           TIMESTAMP=$(date +'%Y%m%d-%H%M%S')
           TARGET_DIR="${MOODLE_PATH}/${{ matrix.dir }}"
           BACKUP_DIR="/tmp/moodle-backups"
           BACKUP_FILE="${BACKUP_DIR}/$(basename "${{ matrix.dir }}")-${TIMESTAMP}.zip"
 
+          echo "Creating backup directory: ${BACKUP_DIR}"
           sudo mkdir -p "${BACKUP_DIR}"
+          
           if [ -d "${TARGET_DIR}" ]; then
+            echo "Backing up existing directory: ${TARGET_DIR}"
             sudo zip -rq "${BACKUP_FILE}" "${TARGET_DIR}"
-            echo "Created backup: ${BACKUP_FILE}"
+            echo "Backup created: ${BACKUP_FILE}"
+            echo "Backup size: $(du -h ${BACKUP_FILE} | cut -f1)"
           else
             echo "No existing directory to backup: ${TARGET_DIR}"
           fi
 
       - name: Deploy to Moodle
         run: |
+          echo "Starting deployment process..."
           DEPLOY_DIR="${MOODLE_PATH}/$(dirname "${{ matrix.dir }}")"
           ZIP_FILE="/tmp/$(echo "${{ matrix.dir }}" | tr '/' '-')-*.zip"
           
           echo "Deploying to: ${DEPLOY_DIR}"
           echo "Using zip file: ${ZIP_FILE}"
 
+          echo "Creating target directory if needed"
           sudo mkdir -p "${DEPLOY_DIR}"
+          
+          echo "Unzipping package..."
           sudo unzip -qo ${ZIP_FILE} -d "${DEPLOY_DIR}"
+          
+          echo "Setting permissions..."
           sudo chown -R www-data:www-data "${DEPLOY_DIR}/$(basename "${{ matrix.dir }}")"
-          echo "Successfully deployed ${{ matrix.dir }}"
+          
+          echo "Deployment completed successfully for ${{ matrix.dir }}"
