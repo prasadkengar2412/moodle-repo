@@ -170,43 +170,52 @@ jobs:
             *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
           echo "Using deployment root: $(grep '^ROOT=' $GITHUB_ENV)"
-      - name: Safe Deployment
+
+      - name: Backup Existing Plugin
         run: |
           set -eo pipefail
-          # Remove the "plugins/" prefix if present so that the plugin is placed in the correct location under ROOT
+          trap 'echo "Backup stage failed at line $LINENO" && exit 1' ERR
+          # Remove the "plugins/" prefix so the plugin is placed under ROOT correctly.
           deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
           target_dir="$ROOT/$deploy_subdir"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
-          # Compute the safe name and locate the zip file
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "Computed safe_name: $safe_name"
-          zip_file=$(ls -t /tmp/deployment/${safe_name}-*.zip 2>/dev/null | head -n 1)
+          
+          if [ -d "$target_dir" ]; then
+            echo "Creating backup of existing directory $target_dir..."
+            sudo mkdir -p "$backup_dir"
+            # Append time to the backup filename to avoid overwrites during multiple deployments in one day.
+            sudo tar -czf "$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz" \
+              -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
+          else
+            echo "No existing directory $target_dir found. Skipping backup."
+          fi
 
+      - name: Deploy Plugin
+        run: |
+          set -eo pipefail
+          trap 'echo "Deployment stage failed at line $LINENO" && exit 1' ERR
+          # Remove the "plugins/" prefix so the plugin is deployed correctly under ROOT.
+          deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
+          target_dir="$ROOT/$deploy_subdir"
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          
+          # Locate the latest zip package.
+          zip_file=$(ls -t /tmp/deployment/${safe_name}-*.zip 2>/dev/null | head -n 1)
           if [ -z "$zip_file" ]; then
             echo "Error: Zip file for $safe_name not found in /tmp/deployment"
             exit 1
           fi
           echo "Zip file found: $zip_file"
-          echo "Backup directory: $backup_dir"
           echo "Target directory: $target_dir"
-          
-          # echo "Listing contents of zip file:"
-          # unzip -l "$zip_file"
-          
-          echo "Starting deployment to: $target_dir"
-          
-          sudo mkdir -p "$backup_dir"
-          if [ -d "$target_dir" ]; then
-            echo "Creating backup of existing directory $target_dir..."
-            sudo tar -czf "$backup_dir/$(basename "$target_dir").tgz" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
-          fi
           
           echo "Removing old files at $target_dir..."
           sudo rm -rf "$target_dir"
           
           echo "Deploying new version from $zip_file..."
-          # Since the zip was created from the parent directory, its contents are a single folder.
-          # Extract the zip file into the parent directory of target_dir to ensure the folder is placed correctly.
+          # Since the zip was created from the parent directory, extract into its parent so that
+          # the folder (e.g. auth, mod, etc.) is correctly placed under ROOT.
           sudo mkdir -p "$(dirname "$target_dir")"
           sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
           
