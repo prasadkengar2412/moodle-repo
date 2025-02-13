@@ -108,11 +108,6 @@ jobs:
           
           echo "Final directory list: $json_dirs"
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
-          
-      - name: Debug Branch Name
-        run: |
-          echo "GitHub ref: ${{ github.ref }}"
-          echo "GitHub ref name: ${{ github.ref_name }}"
 
   package-plugins:
     name: Create Deployment Packages
@@ -155,7 +150,7 @@ jobs:
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     #runs-on: self-hosted
-    runs-on: ${{ github.ref == 'refs/heads/main' && 'moodle-prod' || 'moodle-dev' }}
+    runs-on: ${{ startsWith(github.ref, 'refs/heads/main') && 'moodle-prod' || 'moodle-dev' }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
