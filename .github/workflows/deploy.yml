@@ -228,3 +228,4 @@ jobs:
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
           
           echo "Successfully deployed $deploy_subdir!"
+          
