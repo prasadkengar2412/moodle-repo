@@ -14,7 +14,7 @@ on:
         default: ""
 
 env:
-  PROD_ROOT: /var/www/html/moodle-new
+  PROD_ROOT: /var/www/html/moodle
   DEV_ROOT: /var/www/html/moodle-dev
 
 jobs:
@@ -190,8 +190,8 @@ jobs:
           echo "Backup directory: $backup_dir"
           echo "Target directory: $target_dir"
           
-          echo "Listing contents of zip file:"
-          unzip -l "$zip_file"
+          # echo "Listing contents of zip file:"
+          # unzip -l "$zip_file"
           
           echo "Starting deployment to: $target_dir"
           

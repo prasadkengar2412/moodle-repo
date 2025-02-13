@@ -13,8 +13,8 @@
 //s
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
-//Mahesh
-/**
+//Mahe
+// /**
  * Test auth settings.
  *
  * @package    core_auth
