@@ -147,7 +147,8 @@ jobs:
     name: Deploy to Server
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    runs-on: self-hosted
+    #runs-on: self-hosted
+    runs-on: ${{ github.ref_name == 'main' && 'moodle-prod' || 'moodle-dev' }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
@@ -219,3 +220,4 @@ jobs:
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
           
           echo "Successfully deployed $deploy_subdir!"
+         
