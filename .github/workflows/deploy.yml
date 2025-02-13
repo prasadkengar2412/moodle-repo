@@ -228,4 +228,7 @@ jobs:
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
           
           echo "Successfully deployed $deploy_subdir!"
-          
+      - name: Run Moodle Upgrade
+        run: |
+            sudo -u www-data /usr/bin/php /var/www/html/moodle-app/admin/cli/upgrade.php --non-interactive
+        
