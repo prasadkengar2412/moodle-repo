@@ -15,7 +15,7 @@ on:
 
 env:
   PROD_ROOT: /var/www/html/moodle
-  DEV_ROOT: /var/www/html/moodle-new
+  #DEV_ROOT: /var/www/html/moodle-new
 
 jobs:
   detect-changes:
@@ -149,8 +149,7 @@ jobs:
     name: Deploy to Server
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    #runs-on: self-hosted
-    runs-on: ${{ startsWith(github.ref, 'refs/heads/main') && 'moodle-prod' || 'moodle-dev' }}
+    runs-on: self-hosted
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
