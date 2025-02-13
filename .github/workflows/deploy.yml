@@ -14,8 +14,8 @@ on:
         default: ""
 
 env:
-  PROD_ROOT: /var/www/html/moodle-new
-  DEV_ROOT: /var/www/html/moodle-dev
+  PROD_ROOT: /var/www/html/moodle
+  DEV_ROOT: /var/www/html/moodle-new
 
 jobs:
   detect-changes:
@@ -148,16 +148,22 @@ jobs:
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     #runs-on: self-hosted
-    runs-on: ${{ github.ref_name == 'main' && 'moodle-prod' || 'moodle-dev' }}
+    runs-on: ${{ github.ref == 'refs/heads/main' && 'moodle-prod' || 'moodle-dev' }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
     steps:
+      - name: Debug Branch Name
+        run: |
+          echo "GitHub ref: ${{ github.ref }}"
+          echo "GitHub ref name: ${{ github.ref_name }}"
+
       - name: Compute Safe Name
         id: compute-safe
         run: |
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
+
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
@@ -171,6 +177,7 @@ jobs:
             *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
           echo "Using deployment root: $(grep '^ROOT=' $GITHUB_ENV)"
+
       - name: Safe Deployment
         run: |
           set -eo pipefail
