@@ -49,6 +49,7 @@ jobs:
               - 'plugins/mod/**'
             theme:
               - 'plugins/theme/**'
+
       - name: Process Changes
         id: process-changes
         run: |
@@ -107,6 +108,11 @@ jobs:
           
           echo "Final directory list: $json_dirs"
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
+          
+      - name: Debug Branch Name
+        run: |
+          echo "GitHub ref: ${{ github.ref }}"
+          echo "GitHub ref name: ${{ github.ref_name }}"
 
   package-plugins:
     name: Create Deployment Packages
@@ -136,6 +142,7 @@ jobs:
           echo "Created package: $zip_path ($(du -h "$zip_path" | cut -f1))"
           echo "zip=$zip_path" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
