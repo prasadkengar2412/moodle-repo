@@ -14,8 +14,8 @@ on:
         default: ""
 
 env:
-  PROD_ROOT: /var/www/html/moodle
-  #DEV_ROOT: /var/www/html/moodle-new
+  PROD_ROOT: /var/www/html/moodle-new
+  DEV_ROOT: /var/www/html/moodle-dev
 
 jobs:
   detect-changes:
@@ -49,7 +49,6 @@ jobs:
               - 'plugins/mod/**'
             theme:
               - 'plugins/theme/**'
-
       - name: Process Changes
         id: process-changes
         run: |
@@ -137,7 +136,6 @@ jobs:
           echo "Created package: $zip_path ($(du -h "$zip_path" | cut -f1))"
           echo "zip=$zip_path" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -154,17 +152,11 @@ jobs:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
     steps:
-      - name: Debug Branch Name
-        run: |
-          echo "GitHub ref: ${{ github.ref }}"
-          echo "GitHub ref name: ${{ github.ref_name }}"
-
       - name: Compute Safe Name
         id: compute-safe
         run: |
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
-
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
@@ -178,7 +170,6 @@ jobs:
             *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
           echo "Using deployment root: $(grep '^ROOT=' $GITHUB_ENV)"
-
       - name: Safe Deployment
         run: |
           set -eo pipefail
@@ -228,4 +219,3 @@ jobs:
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
           
           echo "Successfully deployed $deploy_subdir!"
-         
