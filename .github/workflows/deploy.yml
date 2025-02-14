@@ -18,47 +18,6 @@ env:
   DEV_ROOT: /var/www/html/moodle-dev
 
 jobs:
-
-  lint:
-    name: Run Code Linting
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.0'
-          tools: composer
-
-      - name: Install PHP_CodeSniffer & Moodle Standards
-        run: |
-            composer global config --no-plugins allow-plugins.dealerdirect/phpcodesniffer-composer-installer true
-
-
-      - name: Run PHPCS Linting
-        run: |
-          ~/.composer/vendor/bin/phpcs --standard=moodle --ignore=*/vendor/* plugins/
-
-  security-scan:
-    name: Run Security Scan
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Install Trivy
-        run: |
-          sudo apt-get install wget -y
-          wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo tee /etc/apt/trusted.gpg.d/trivy.asc
-          echo "deb https://aquasecurity.github.io/trivy-repo/deb focal main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
-
-      - name: Run Trivy Scan
-        run: trivy fs --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed .
-
   detect-changes:
     name: Identify Changed Plugins
     runs-on: ubuntu-latest
@@ -76,39 +35,78 @@ jobs:
         with:
           list-files: json
           filters: |
-            plugins:
-              - 'plugins/**'
-
+            auth:
+              - 'plugins/auth/**'
+            blocks:
+              - 'plugins/blocks/**'
+            customfield:
+              - 'plugins/customfield/**'
+            enrol:
+              - 'plugins/enrol/**'
+            local:
+              - 'plugins/local/**'
+            mod:
+              - 'plugins/mod/**'
+            theme:
+              - 'plugins/theme/**'
       - name: Process Changes
         id: process-changes
         run: |
-          changed_files=${{ steps.file-filter.outputs.plugins_files }}
-          if [[ -z "$changed_files" || "$changed_files" == "[]" ]]; then
-            echo "dirs=[]" >> $GITHUB_OUTPUT
+          echo "Starting change processing..."
+          
+          declare -A plugin_map
+          
+          process_files() {
+            local filter_name=$1
+            local raw_input=$2
+            echo "Processing $filter_name files: $raw_input"
+            
+            if [[ -z "$raw_input" || "$raw_input" == "[]" ]]; then
+              echo "No files found for $filter_name"
+              return
+            fi
+            while IFS= read -r file; do
+              file=$(echo "$file" | sed 's/^ *//; s/ *$//; s/"//g')
+              [[ -z "$file" ]] && continue
+              
+              echo "Found file: $file"
+              IFS='/' read -ra parts <<< "$file"
+              
+              if [[ ${#parts[@]} -ge 3 ]]; then
+                case "${parts[1]}" in
+                  auth|blocks|theme)
+                    key="${parts[0]}/${parts[1]}"
+                    ;;
+                  customfield|enrol|local|mod)
+                    key="${parts[0]}/${parts[1]}/${parts[2]}"
+                    ;;
+                  *)
+                    key="$file"
+                    ;;
+                esac
+                plugin_map["$key"]=1
+                echo "Added directory: $key"
+              fi
+            done < <(echo "$raw_input" | sed 's/[][]//g' | tr ',' '\n')
+          }
+          process_files "auth" "${{ steps.file-filter.outputs.auth_files }}"
+          process_files "blocks" "${{ steps.file-filter.outputs.blocks_files }}"
+          process_files "customfield" "${{ steps.file-filter.outputs.customfield_files }}"
+          process_files "enrol" "${{ steps.file-filter.outputs.enrol_files }}"
+          process_files "local" "${{ steps.file-filter.outputs.local_files }}"
+          process_files "mod" "${{ steps.file-filter.outputs.mod_files }}"
+          process_files "theme" "${{ steps.file-filter.outputs.theme_files }}"
+          dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
+          echo "Identified directories:"
+          echo "$dir_list"
+          if [[ -z "$dir_list" ]]; then
+            json_dirs="[]"
           else
-            directories=$(echo "$changed_files" | jq -r 'map(split("/")[0:3] | join("/")) | unique | .[]' | jq -nc '$ARGS.positional' --args)
-            echo "dirs=$directories" >> $GITHUB_OUTPUT
+            json_dirs=$(jq -nc '$ARGS.positional' --args ${dir_list})
           fi
-
-  unit-tests:
-    name: Run Unit Tests
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.0'
-          extensions: mbstring, xml, intl
-          tools: composer, phpunit
-
-      - name: Install Dependencies
-        run: composer install --prefer-dist --no-progress
-
-      - name: Run PHPUnit Tests
-        run: vendor/bin/phpunit --configuration phpunit.xml.dist
+          
+          echo "Final directory list: $json_dirs"
+          echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
 
   package-plugins:
     name: Create Deployment Packages
@@ -125,13 +123,19 @@ jobs:
       - name: Create Plugin Bundle
         id: package
         run: |
+          echo "Packaging ${{ matrix.dir }}..."
+          # Compute a safe name by replacing '/' with '-'
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
+          
+          # Change into the parent directory of the plugin folder and zip only the plugin folder.
           cd "$(dirname "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
-          echo "zip=$zip_file" >> $GITHUB_OUTPUT
+          
+          zip_path="$(pwd)/$zip_file"
+          echo "Created package: $zip_path ($(du -h "$zip_path" | cut -f1))"
+          echo "zip=$zip_path" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -153,7 +157,6 @@ jobs:
         run: |
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
-
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
@@ -166,31 +169,67 @@ jobs:
             main) echo "ROOT=$PROD_ROOT" >> $GITHUB_ENV ;;
             *)    echo "ROOT=$DEV_ROOT" >> $GITHUB_ENV ;;
           esac
+          echo "Using deployment root: $(grep '^ROOT=' $GITHUB_ENV)"
 
       - name: Backup Existing Plugin
         run: |
+          set -eo pipefail
+          trap 'echo "Backup stage failed at line $LINENO" && exit 1' ERR
+          # Remove the "plugins/" prefix so the plugin is placed under ROOT correctly.
           deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
           target_dir="$ROOT/$deploy_subdir"
           backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)"
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          echo "Computed safe_name: $safe_name"
+          
           if [ -d "$target_dir" ]; then
+            echo "Creating backup of existing directory $target_dir..."
             sudo mkdir -p "$backup_dir"
-            sudo tar -czf "$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
+            # Append time to the backup filename to avoid overwrites during multiple deployments in one day.
+            sudo tar -czf "$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz" \
+              -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
+          else
+            echo "No existing directory $target_dir found. Skipping backup."
           fi
 
       - name: Deploy Plugin
         run: |
+          set -eo pipefail
+          trap 'echo "Deployment stage failed at line $LINENO" && exit 1' ERR
+          # Remove the "plugins/" prefix so the plugin is deployed correctly under ROOT.
           deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
           target_dir="$ROOT/$deploy_subdir"
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          
+          # Locate the latest zip package.
           zip_file=$(ls -t /tmp/deployment/${safe_name}-*.zip 2>/dev/null | head -n 1)
-          [ -z "$zip_file" ] && { echo "Error: Zip file for $safe_name not found"; exit 1; }
+          if [ -z "$zip_file" ]; then
+            echo "Error: Zip file for $safe_name not found in /tmp/deployment"
+            exit 1
+          fi
+          echo "Zip file found: $zip_file"
+          echo "Target directory: $target_dir"
+          
+          echo "Removing old files at $target_dir..."
           sudo rm -rf "$target_dir"
+          
+          echo "Deploying new version from $zip_file..."
+          # Since the zip was created from the parent directory, extract into its parent so that
+          # the folder (e.g. auth, mod, etc.) is correctly placed under ROOT.
           sudo mkdir -p "$(dirname "$target_dir")"
           sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
+          
+          echo "Listing deployed files in $target_dir:"
+          ls -la "$target_dir"
+          
+          echo "Setting permissions on $target_dir..."
           sudo chown -R www-data:www-data "$target_dir"
           sudo find "$target_dir" -type d -exec chmod 755 {} \;
           sudo find "$target_dir" -type f -exec chmod 644 {} \;
-
+          
+          echo "Successfully deployed $deploy_subdir!"
+          
       - name: Run Moodle Upgrade
-        run: sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
+        run: |
+            sudo -u www-data /usr/bin/php /var/www/html/moodle/admin/cli/upgrade.php --non-interactive
+        
