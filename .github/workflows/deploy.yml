@@ -34,7 +34,8 @@ jobs:
 
       - name: Install PHP_CodeSniffer & Moodle Standards
         run: |
-          composer global require squizlabs/php_codesniffer moodlehq/moodle-cs
+            composer global config --no-plugins allow-plugins.dealerdirect/phpcodesniffer-composer-installer true
+
 
       - name: Run PHPCS Linting
         run: |
