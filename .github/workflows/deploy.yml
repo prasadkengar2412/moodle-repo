@@ -14,6 +14,9 @@ on:
         options:
           - 'main'
 
+env:
+  MOODLE_ROOT: /var/www/html  # Single root since you specified /var/www/html
+
 jobs:
   detect-changes:
     name: Identify Changed Plugins
@@ -98,3 +101,71 @@ jobs:
           name: pkg-${{ steps.package.outputs.name }}
           path: ${{ steps.package.outputs.zip }}
           retention-days: 3
+
+  deploy-plugins:
+    name: Deploy to Server
+    needs: [detect-changes, package-plugins]
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: self-hosted
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
+    steps:
+      - name: Compute Safe Name and Target Path
+        id: compute-safe
+        run: |
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
+          case "${{ matrix.dir }}" in
+            plugins/block/*) target_path="blocks/$(basename "${{ matrix.dir }}")" ;;
+            plugins/customfield/*) target_path="customfield/field/$(basename "${{ matrix.dir }}")" ;;
+            *) target_path="$deploy_subdir" ;;
+          esac
+          echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
+          echo "target_path=$target_path" >> $GITHUB_OUTPUT
+
+      - name: Retrieve Package
+        uses: actions/download-artifact@v4
+        with:
+          name: pkg-${{ steps.compute-safe.outputs.safe_name }}
+          path: /tmp/deployment/${{ github.run_id }}
+
+      - name: Backup Existing Plugin
+        run: |
+          set -eo pipefail
+          trap 'echo "Backup failed at line $LINENO" && exit 1' ERR
+          target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
+          backup_dir="/tmp/moodle-backups/${{ github.run_id }}/$(date +%Y%m%d)"
+          if [ -d "$target_dir" ]; then
+            sudo mkdir -p "$backup_dir"
+            sudo tar -czf "$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz" \
+              -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
+          fi
+
+      - name: Deploy Plugin
+        run: |
+          set -eo pipefail
+          trap 'echo "Deployment failed at line $LINENO" && exit 1' ERR
+          target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
+          safe_name="${{ steps.compute-safe.outputs.safe_name }}"
+          zip_file=$(ls -t /tmp/deployment/${{ github.run_id }}/${safe_name}-*.zip | head -n 1)
+          if [ -z "$zip_file" ]; then
+            echo "Error: No ZIP file found for $safe_name"
+            exit 1
+          fi
+          sudo rm -rf "$target_dir"
+          sudo mkdir -p "$(dirname "$target_dir")"
+          sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
+          sudo chown -R www-data:www-data "$target_dir"
+          sudo find "$target_dir" -type d -exec chmod 755 {} \;
+          sudo find "$target_dir" -type f -exec chmod 644 {} \;
+
+  upgrade-moodle:
+    name: Run Moodle Upgrade
+    needs: deploy-plugins
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: self-hosted
+    steps:
+      - name: Run Moodle Upgrade
+        run: |
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
