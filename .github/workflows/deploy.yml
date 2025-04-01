@@ -35,38 +35,33 @@ jobs:
           echo "$plugin_dirs" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-      - name: Detect Changed Files
-        id: file-filter
-        uses: dorny/paths-filter@v3
-        with:
-          list-files: json
-          filters: |
-            ${{ steps.find-plugins.outputs.plugin_dirs }}
-
       - name: Process Changes
         id: process-changes
         run: |
+          # Get the list of changed files in the latest commit
+          changed_files=$(git diff --name-only HEAD^ HEAD)
+          
           # Initialize an associative array to track changed directories
           declare -A plugin_map
+          
           # Loop through each plugin directory
           for dir in $(echo "${{ steps.find-plugins.outputs.plugin_dirs }}"); do
-            # Convert directory path to a filter name (e.g., plugins_auth_oidc)
-            filter_name=$(echo "$dir" | tr '/' '_')
-            # Get the list of changed files for this directory
-            raw_input="${{ steps.file-filter.outputs.${filter_name}_files }}"
-            # If there are changes (non-empty and not empty array), mark the directory
-            if [[ -n "$raw_input" && "$raw_input" != "[]" ]]; then
+            # Check if any changed file is within this directory
+            if echo "$changed_files" | grep -q "^$dir/"; then
               plugin_map["$dir"]=1
             fi
           done
+          
           # Convert the changed directories to a sorted list
           dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
+          
           # If no changes, output an empty JSON array; otherwise, format as JSON
           if [[ -z "$dir_list" ]]; then
             json_dirs="[]"
           else
             json_dirs=$(jq -nc '$ARGS.positional' --args ${dir_list})
           fi
+          
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
 
   package-plugins:
