@@ -187,8 +187,8 @@ jobs:
           sudo mkdir -p "$(dirname "$target_dir")"
           echo "Unzipping $zip_file to $(dirname "$target_dir")"
           sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
-          echo "Setting ownership of $target_dir to sraju:sraju"
-          sudo chown -R sraju:sraju "$target_dir"
+          echo "Setting ownership of $target_dir to www-data:www-data"
+          sudo chown -R www-data:www-data "$target_dir"
           echo "Setting directory permissions to 755"
           sudo find "$target_dir" -type d -exec chmod 755 {} \;
           echo "Setting file permissions to 644"
