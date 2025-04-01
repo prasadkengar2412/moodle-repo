@@ -135,7 +135,7 @@ jobs:
           set -eo pipefail
           trap 'echo "Backup failed at line $LINENO" && exit 1' ERR
           target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
-          backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)-${{ github.run_id }}-${{ steps.compute-safe.outputs.safe_name }}"
+          backup_dir="/tmp/moodle-backups/${{ github.run_id }}/$(date +%Y%m%d)"
           if [ -d "$target_dir" ]; then
             sudo mkdir -p "$backup_dir"
             sudo tar -czf "$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz" \
@@ -163,9 +163,9 @@ jobs:
 #  upgrade-moodle:
 #    name: Run Moodle Upgrade
 #    needs: deploy-plugins
-#    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+#   if: ${{ needs.detect-changes.outputs.directories != '[]' }}
 #    runs-on: self-hosted
-#    steps:
-#      - name: Run Moodle Upgrade
+#   steps:
+#     - name: Run Moodle Upgrade
 #        run: |
 #          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
