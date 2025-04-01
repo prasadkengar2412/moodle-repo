@@ -135,7 +135,7 @@ jobs:
           set -eo pipefail
           trap 'echo "Backup failed at line $LINENO" && exit 1' ERR
           target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
-          backup_dir="/tmp/moodle-backups/${{ github.run_id }}/$(date +%Y%m%d)"
+          backup_dir="/tmp/moodle-backups/$(date +%Y%m%d)-${{ github.run_id }}-${{ steps.compute-safe.outputs.safe_name }}"
           if [ -d "$target_dir" ]; then
             sudo mkdir -p "$backup_dir"
             sudo tar -czf "$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz" \
