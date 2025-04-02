@@ -23,11 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       directories: ${{ steps.process-changes.outputs.dirs }}
-    steps:
-      - name: Log Branch Name
-        run: |
-          echo "Branch: ${{ github.event.inputs.branch || github.ref_name }}"
-          
+    steps:          
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
@@ -122,7 +118,7 @@ jobs:
     name: Deploy to Server
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    runs-on: self-hosted
+    runs-on: ${{ github.ref_name == 'main' && 'self-hosted' || 'self-hosted' }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
