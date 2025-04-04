@@ -13,7 +13,7 @@ on:
           - 'dev'                 
 
 env:
-  MOODLE_ROOT: /var/www/html/html
+  MOODLE_ROOT: /var/www/html/moodle
 
 jobs:
   detect-changes:
