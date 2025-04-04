@@ -10,10 +10,10 @@ on:
         default: 'main'
         options:
           - 'main'
-          - 'dev'
+          - 'dev'                 
 
 env:
-  MOODLE_ROOT: /var/www/html/moodle  
+  MOODLE_ROOT: /var/www/html/html
 
 jobs:
   detect-changes:
@@ -21,12 +21,12 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       directories: ${{ steps.process-changes.outputs.dirs }}
-    steps:          
+    steps:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch }}
-          fetch-depth: 0 
+          fetch-depth: 0  
 
       - name: Find Plugin Directories
         id: find-plugins
@@ -182,20 +182,14 @@ jobs:
           sudo mkdir -p "$(dirname "$target_dir")"
           echo "Unzipping $zip_file to $(dirname "$target_dir")"
           sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
-          echo "Setting ownership of $target_dir to www-data:www-data"
+          echo "Setting ownership of $target_dir to sraju:sraju"
           sudo chown -R www-data:www-data "$target_dir"
-          echo "Setting directory permissions to 755"
-          sudo find "$target_dir" -type d -exec chmod 755 {} \;
-          echo "Setting file permissions to 644"
-          sudo find "$target_dir" -type f -exec chmod 644 {} \;
+          echo "Setting directory permissions to 777"
+          sudo find "$target_dir" -type d -exec chmod 777 {} \;
+          echo "Setting file permissions to 777"
+          sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
 
-#  upgrade-moodle:
-#    name: Run Moodle Upgrade
-#    needs: deploy-plugins
-#    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-#    runs-on: self-hosted
-#    steps:
-#      - name: Run Moodle Upgrade
-#        run: |
-#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
+      - name: Run Moodle Upgrade
+        run: |
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
