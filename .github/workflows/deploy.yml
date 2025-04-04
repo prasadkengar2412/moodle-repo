@@ -1,18 +1,19 @@
 name: Moodle Plugin Workflow
 
 on:
-  push:
-    branches:
-      - main
+#  push:
+#    branches:
+#      - main
   workflow_dispatch:
     inputs:
       branch:
         description: 'Select deployment branch'
-        required: false
+        required: true
         type: choice
         default: 'main'
         options:
           - 'main'
+          - 'dev'
 
 env:
   MOODLE_ROOT: /var/www/html/moodle  
@@ -118,7 +119,7 @@ jobs:
     name: Deploy to Server
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    runs-on: ${{ github.ref_name == 'main' && 'self-hosted' || 'self-hosted' }}
+    runs-on: ${{ github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') || github.event.inputs.branch == 'dev' && fromJson('["self-hosted", "private1", "dev"]') }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
