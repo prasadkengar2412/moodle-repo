@@ -1,9 +1,6 @@
 name: Moodle Plugin Workflow
 
 on:
-#  push:
-#    branches:
-#      - main
   workflow_dispatch:
     inputs:
       branch:
