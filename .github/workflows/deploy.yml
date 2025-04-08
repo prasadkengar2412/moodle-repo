@@ -192,6 +192,6 @@ jobs:
           sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
 
-      - name: Run Moodle Upgrade
-        run: |
-          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
+#      - name: Run Moodle Upgrade
+#        run: |
+#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
