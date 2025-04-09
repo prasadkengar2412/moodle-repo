@@ -120,6 +120,7 @@ jobs:
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ${{ github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') || github.event.inputs.branch == 'dev' && fromJson('["self-hosted", "private1", "dev"]') }}
+    environment: ${{ github.event.inputs.branch == 'main' && 'production-deployment' }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
@@ -145,6 +146,11 @@ jobs:
         with:
           name: pkg-${{ steps.compute-safe.outputs.safe_name }}
           path: /tmp/deployment/${{ github.run_id }}
+
+      - name: Enable Maintenance Mode
+        run: |
+          echo "Enabling maintenance mode"
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable 
 
       - name: Backup Existing Plugin
         run: |
@@ -178,13 +184,11 @@ jobs:
             exit 1
           fi
           echo "Found ZIP file for deployment: $zip_file"
-          echo "Removing existing directory: $target_dir"
-          sudo rm -rf "$target_dir"
-          echo "Creating parent directory for deployment: $(dirname "$target_dir")"
+          echo "Ensuring parent directory exists: $(dirname "$target_dir")"
           sudo mkdir -p "$(dirname "$target_dir")"
           echo "Unzipping $zip_file to $(dirname "$target_dir")"
-          sudo unzip -q "$zip_file" -d "$(dirname "$target_dir")"
-          echo "Setting ownership of $target_dir to sraju:sraju"
+          sudo unzip -qo "$zip_file" -d "$(dirname "$target_dir")"
+          echo "Setting ownership of $target_dir to www-data:www-data"
           sudo chown -R www-data:www-data "$target_dir"
           echo "Setting directory permissions to 777"
           sudo find "$target_dir" -type d -exec chmod 777 {} \;
@@ -195,3 +199,8 @@ jobs:
 #      - name: Run Moodle Upgrade
 #        run: |
 #          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
+      - name: Disable Maintenance Mode
+        if: always() 
+        run: |
+          echo "Disabling maintenance mode"
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
