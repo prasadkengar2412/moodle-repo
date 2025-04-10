@@ -3,8 +3,7 @@ name: Moodle Plugin Workflow
 on:
   push:
     branches:
-      - dev 
-      - main
+      - dev
 
   workflow_dispatch:
     inputs:
@@ -14,8 +13,7 @@ on:
         type: choice
         default: 'main'
         options:
-          - 'main'
-          - 'dev'                 
+          - 'main'               
 
 env:
   MOODLE_ROOT: /var/www/html/moodle
