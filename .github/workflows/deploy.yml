@@ -1,6 +1,10 @@
 name: Moodle Plugin Workflow
 
 on:
+  push:
+    branches:
+      - dev 
+
   workflow_dispatch:
     inputs:
       branch:
@@ -10,7 +14,7 @@ on:
         default: 'main'
         options:
           - 'main'
-          - 'dev'                 
+                           
 
 env:
   MOODLE_ROOT: /var/www/html/moodle
@@ -119,8 +123,11 @@ jobs:
     name: Deploy to Server
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    runs-on: ${{ github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') || github.event.inputs.branch == 'dev' && fromJson('["self-hosted", "private1", "dev"]') }}
-    environment: ${{ github.event.inputs.branch == 'main' && 'production-deployment' }}
+    #runs-on: ${{ github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') || github.event.inputs.branch == 'dev' && fromJson('["self-hosted", "private1", "dev"]') }}
+    runs-on: ${{ 
+                (github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' || github.event_name == 'push' && github.ref_name == 'main') && fromJson('["self-hosted", "priavte2", "prod"]') ||
+                (github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'dev' || github.event_name == 'push' && github.ref_name == 'dev') && fromJson('["self-hosted", "private1", "dev"]')
+              }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
