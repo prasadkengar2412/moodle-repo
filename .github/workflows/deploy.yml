@@ -3,7 +3,7 @@ name: Moodle Plugin Workflow
 on:
   push:
     branches:
-      - dev
+      - develop
 
   workflow_dispatch:
     inputs:
