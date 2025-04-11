@@ -3,7 +3,7 @@ name: Moodle Plugin Workflow
 on:
   push:
     branches:
-      - dev
+      - develop
 
   workflow_dispatch:
     inputs:
@@ -28,7 +28,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
           fetch-depth: 0  
 
       - name: Find Plugin Directories
@@ -90,7 +90,8 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch }}
+          ref: ${{ github.event.inputs.branch || github.ref_name }}
+
 
       - name: Create Plugin Bundle
         id: package
@@ -124,8 +125,8 @@ jobs:
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     #runs-on: ${{ github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') || github.event.inputs.branch == 'dev' && fromJson('["self-hosted", "private1", "dev"]') }}
     runs-on: ${{ 
-                (github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' || github.event_name == 'push' && github.ref_name == 'main') && fromJson('["self-hosted", "priavte2", "prod"]') ||
-                (github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'dev' || github.event_name == 'push' && github.ref_name == 'dev') && fromJson('["self-hosted", "private1", "dev"]')
+                  github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') ||
+                  github.event_name == 'push' && github.ref_name == 'develop' && fromJson('["self-hosted", "private1", "dev"]')
               }}
     strategy:
       matrix:
