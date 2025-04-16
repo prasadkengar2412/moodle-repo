@@ -4,19 +4,16 @@ on:
   push:
     branches:
       - develop
-#  pull_request:
-#   types: [closed]
-#   branches:
-#     - develop
+
   workflow_dispatch:
-    inputs:
-      branch:
-        description: 'Select deployment branch'
-        required: true
-        type: choice
-        default: 'develop'
-        options:
-          - ''               
+   # inputs:
+   #   branch:
+   #     description: 'Select deployment branch'
+   #     required: true
+   #     type: choice
+   #     default: 'develop'
+   #     options:
+   #       - ''               
 
 env:
   MOODLE_ROOT: /var/www/html/moodle
