@@ -1,13 +1,13 @@
-name: Moodle Plugin Workflow
+name: Moodle Plugin Workflow - develop
 
 on:
-#  push:
-#    branches:
-#      - develop
-  pull_request:
-   types: [closed]
-   branches:
-     - develop
+  push:
+    branches:
+      - develop
+#  pull_request:
+#   types: [closed]
+#   branches:
+#     - develop
   workflow_dispatch:
     inputs:
       branch:
