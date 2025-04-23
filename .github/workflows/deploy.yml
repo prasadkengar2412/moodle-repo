@@ -249,9 +249,20 @@ jobs:
             tag="$safe_name-v$version"
             echo "Generated tag: $tag"
             tag_list="$tag_list $tag"
-            release_notes="$release_notes\n### $plugin_name\n- Version: $version\n- Directory: $dir\n"
+            # Fetch commit messages for files in the directory
+            echo "Fetching commit messages for $dir"
+            commit_messages=$(git log --pretty=format:"%s" HEAD^..HEAD -- "$dir" | sed 's/^/- /' | sort -u)
+            if [[ -z "$commit_messages" ]]; then
+              echo "No commit messages found for $dir"
+              commit_messages="- No commit messages found for this plugin"
+            else
+              echo "Commit messages found for $dir:"
+              echo "$commit_messages"
+            fi
+            # Build release notes with plugin details and commit messages
+            release_notes="$release_notes\n### $plugin_name\n- Version: $version\n- Directory: $dir\n#### Commits:\n$commit_messages\n"
           done
-          echo "Release notes:"
+          echo "Final release notes:"
           echo -e "$release_notes"
           echo "tag_list=$tag_list"
           echo "release_notes<<EOF" >> $GITHUB_OUTPUT
