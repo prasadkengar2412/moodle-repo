@@ -35,7 +35,6 @@ jobs:
         id: find-plugins
         run: |
           echo "Scanning for plugin directories containing version.php under plugins/"
-          # Find directories containing version.php under plugins/
           plugin_dirs=$(find plugins -type f -name version.php -exec dirname {} \; | sort -u)
           echo "Found plugin directories: $plugin_dirs"
           echo "plugin_dirs<<EOF" >> $GITHUB_OUTPUT
@@ -45,28 +44,22 @@ jobs:
         id: process-changes
         run: |
           echo "Processing changes in the latest commit"
-          # Get the list of changed files in the latest commit
           changed_files=$(git diff --name-only HEAD^ HEAD)
           echo "Changed files detected: $changed_files"
           
-          # Initialize an associative array to track changed directories
           declare -A plugin_map
           
-          # Loop through each plugin directory
           echo "Checking plugin directories for changes"
           for dir in $(echo "${{ steps.find-plugins.outputs.plugin_dirs }}"); do
-            # Check if any changed file is within this directory
             if echo "$changed_files" | grep -q "^$dir/"; then
               echo "Change detected in directory: $dir"
               plugin_map["$dir"]=1
             fi
           done
           
-          # Convert the changed directories to a sorted list
           dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
           echo "List of directories with changes: $dir_list"
           
-          # If no changes, output an empty JSON array; otherwise, format as JSON
           if [[ -z "$dir_list" ]]; then
             json_dirs="[]"
             echo "No changes detected in plugin directories"
@@ -94,12 +87,10 @@ jobs:
         id: package
         run: |
           echo "Creating package for plugin: ${{ matrix.dir }}"
-          # Compute a safe name by replacing '/' with '-'
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           echo "Generated package name: $zip_file"
           
-          # Change into the parent directory and zip the plugin folder
           cd "$(dirname "${{ matrix.dir }}")"
           echo "Zipping directory: $(basename "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
@@ -119,7 +110,6 @@ jobs:
     name: Deploy to Server
     needs: [detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    #runs-on: ${{ github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') || github.event.inputs.branch == 'dev' && fromJson('["self-hosted", "private1", "dev"]') }}
     runs-on: ${{ 
                   github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') ||
                   github.event_name == 'push' && github.ref_name == 'develop' && fromJson('["self-hosted", "private1", "dev"]')
@@ -161,7 +151,7 @@ jobs:
           backup_dir="/tmp/moodle-backups/${{ github.run_id }}/$(date +%Y%m%d)/${{ steps.compute-safe.outputs.target_path }}"
           echo "Checking if target directory exists: $target_dir"
           if [ -d "$target_dir" ]; then
-            echo "Target dictionary exists, proceeding with backup"
+            echo "Target directory exists, proceeding with backup"
             sudo mkdir -p "$backup_dir"
             echo "Created backup directory: $backup_dir"
             backup_file="$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz"
@@ -195,9 +185,6 @@ jobs:
           echo "Setting file permissions to 777"
           sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
-#      - name: Run Moodle Upgrade
-#        run: |
-#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
       - name: Disable Maintenance Mode
         if: always() 
         run: |
@@ -219,13 +206,25 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.0'
-          
+
       - name: show content
         run: ls -la plugins/mod/attendance
-
+  
       - name: Show version.php content
         run: cat plugins/mod/attendance/version.php
-        
+          
+      - name: Debug Version Extraction
+        run: |
+          for dir in $(echo '${{ needs.detect-changes.outputs.directories }}' | jq -r '.[]'); do
+            version_file="$dir/version.php"
+            if [ -f "$version_file" ]; then
+              echo "Content of $version_file:"
+              cat "$version_file"
+              echo "Attempting to extract version:"
+              grep -E '(\$plugin->version|\$module->version|\$version)\s*=' "$version_file" | \
+                sed -E 's/.*=\s*([0-9]+).*/\1/' | head -n 1
+            fi
+          done
 
       - name: Generate Release Notes and Tags
         id: generate-release
@@ -240,11 +239,11 @@ jobs:
             version_file="$dir/version.php"
             if [ -f "$version_file" ]; then
               echo "Extracting version from $version_file"
-              #version=$(php -r "include '$version_file'; echo isset(\$plugin->version) && is_numeric(\$plugin->version) ? \$plugin->version : 'unknown';" 2>/dev/null || echo "unknown")
-              version=$(php -r "include('$version_file'); echo (isset(\$plugin) && isset(\$plugin->version) && is_numeric(\$plugin->version)) ? \$plugin->version : 'unknown';" 2>/dev/null)
-              if [ "$version" = "unknown" ] || [ -z "$version" ]; then
+              version=$(grep -E '(\$plugin->version|\$module->version|\$version)\s*=' "$version_file" | \
+                        sed -E 's/.*=\s*([0-9]+).*/\1/' | head -n 1)
+              if [[ -z "$version" || ! "$version" =~ ^[0-9]+$ ]]; then
                 version=$(date +%Y%m%d%H%M)
-                echo "No valid version found in $version_file, using timestamp: $version"
+                echo "No valid numeric version found in $version_file, using timestamp: $version"
               else
                 echo "Version found: $version"
               fi
