@@ -201,12 +201,6 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch || github.ref_name }}
           fetch-depth: 0
-
-      - name: show content
-        run: ls -la plugins/mod/attendance
-  
-      - name: Show version.php content
-        run: cat plugins/mod/attendance/version.php
           
       - name: Debug Version Extraction
         run: |
