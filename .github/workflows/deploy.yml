@@ -41,7 +41,6 @@ jobs:
           echo "plugin_dirs<<EOF" >> $GITHUB_OUTPUT
           echo "$plugin_dirs" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
       - name: Process Changes
         id: process-changes
         run: |
@@ -77,7 +76,6 @@ jobs:
           fi
           
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
-
   package-plugins:
     name: Package Changed Plugins
     needs: detect-changes
@@ -110,7 +108,6 @@ jobs:
           echo "Created package at: $zip_path"
           echo "zip=$zip_path" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
-
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -146,7 +143,6 @@ jobs:
           echo "Target path: $target_path"
           echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
           echo "target_path=$target_path" >> $GITHUB_OUTPUT
-
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
@@ -157,7 +153,6 @@ jobs:
         run: |
           echo "Enabling maintenance mode"
           sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable 
-
       - name: Backup Existing Plugin
         run: |
           set -eo pipefail
@@ -176,7 +171,6 @@ jobs:
           else
             echo "No existing directory found at $target_dir, skipping backup"
           fi
-
       - name: Deploy Plugin
         run: |
           set -eo pipefail
@@ -201,7 +195,6 @@ jobs:
           echo "Setting file permissions to 777"
           sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
-
 #      - name: Run Moodle Upgrade
 #        run: |
 #          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
@@ -210,7 +203,6 @@ jobs:
         run: |
           echo "Disabling maintenance mode"
           sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
-
   create-release:
     name: Create GitHub Release
     needs: [detect-changes, deploy-plugins]
@@ -241,7 +233,8 @@ jobs:
             version_file="$dir/version.php"
             if [ -f "$version_file" ]; then
               echo "Extracting version from $version_file"
-              version=$(php -r "include '$version_file'; echo isset(\$plugin->version) && is_numeric(\$plugin->version) ? \$plugin->version : 'unknown';" 2>/dev/null || echo "unknown")
+              #version=$(php -r "include '$version_file'; echo isset(\$plugin->version) && is_numeric(\$plugin->version) ? \$plugin->version : 'unknown';" 2>/dev/null || echo "unknown")
+              version=$(php -r "include('$version_file'); echo (isset(\$plugin) && isset(\$plugin->version) && is_numeric(\$plugin->version)) ? \$plugin->version : 'unknown';" 2>/dev/null)
               if [ "$version" = "unknown" ] || [ -z "$version" ]; then
                 version=$(date +%Y%m%d%H%M)
                 echo "No valid version found in $version_file, using timestamp: $version"
@@ -264,7 +257,6 @@ jobs:
           echo -e "$release_notes" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
           echo "tags=$tag_list" >> $GITHUB_OUTPUT
-
       - name: Create Tags
         run: |
           echo "Creating tags"
@@ -283,7 +275,6 @@ jobs:
               git push origin "$tag"
             fi
           done
-
       - name: Retrieve All Packages
         uses: actions/download-artifact@v4
         with:
