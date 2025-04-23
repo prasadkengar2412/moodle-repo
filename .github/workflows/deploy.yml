@@ -219,6 +219,13 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: '8.0'
+          
+      - name: show content
+        run: ls -la plugins/mod/attendance
+
+      - name: Show version.php content
+        run: cat plugins/mod/attendance/version.php
+        
 
       - name: Generate Release Notes and Tags
         id: generate-release
