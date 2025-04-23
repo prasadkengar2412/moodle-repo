@@ -202,11 +202,6 @@ jobs:
           ref: ${{ github.event.inputs.branch || github.ref_name }}
           fetch-depth: 0
 
-      - name: Set up PHP
-        uses: shivammathur/setup-php@v2
-        with:
-          php-version: '8.0'
-
       - name: show content
         run: ls -la plugins/mod/attendance
   
