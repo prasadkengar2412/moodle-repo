@@ -1,4 +1,7 @@
 .github/workflows/test.yml
 .github/workflows/current.yml
 .github/workflows/new.yml
-.github/workflows/ai.yml
+.github/workflows/develop_deploy.yml
+.github/workflows/main_deploy.yml
+.github/workflows/staging_deploy.yml
+.github/workflows/test-clone.yml
