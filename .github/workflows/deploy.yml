@@ -1,4 +1,4 @@
-name: Moodle Plugin Workflow
+name: Moodle Plugin Workflow - develop
 
 on:
   push:
@@ -11,9 +11,9 @@ on:
         description: 'Select deployment branch'
         required: true
         type: choice
-        default: 'main'
+        default: 'develop'
         options:
-          - 'main'               
+          - 'develop'               
 
 env:
   MOODLE_ROOT: /var/www/html/moodle
@@ -126,7 +126,7 @@ jobs:
     #runs-on: ${{ github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') || github.event.inputs.branch == 'dev' && fromJson('["self-hosted", "private1", "dev"]') }}
     runs-on: ${{ 
                   github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') ||
-                  github.event_name == 'push' && github.ref_name == 'develop' && fromJson('["self-hosted", "private1", "dev"]')
+                  github.event_name == 'pull_request' && github.ref_name == 'develop' && fromJson('["self-hosted", "private1", "dev"]')
               }}
     strategy:
       matrix:
