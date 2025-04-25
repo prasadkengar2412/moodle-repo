@@ -210,6 +210,8 @@ jobs:
           done
       - name: Generate Release Notes and Tags with PR Description
         id: generate-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Generating release notes and tags with PR descriptions"
           release_notes=""
