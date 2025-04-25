@@ -29,6 +29,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch || github.ref_name }}
           fetch-depth: 0
+
       - name: Find Plugin Directories
         id: find-plugins
         run: |
@@ -67,6 +68,7 @@ jobs:
           fi
           
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
+
   package-plugins:
     name: Package Changed Plugins
     needs: detect-changes
@@ -80,6 +82,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ github.event.inputs.branch || github.ref_name }}
+
       - name: Create Plugin Bundle
         id: package
         run: |
@@ -96,12 +99,14 @@ jobs:
           echo "Created package at: $zip_path"
           echo "zip=$zip_path" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
           name: pkg-${{ steps.package.outputs.name }}
           path: ${{ steps.package.outputs.zip }}
           retention-days: 3
+          
   deploy-plugins:
     name: Deploy to Server
     needs: [detect-changes, package-plugins]
@@ -129,15 +134,18 @@ jobs:
           echo "Target path: $target_path"
           echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
           echo "target_path=$target_path" >> $GITHUB_OUTPUT
+
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
           name: pkg-${{ steps.compute-safe.outputs.safe_name }}
           path: /tmp/deployment/${{ github.run_id }}
+
       - name: Enable Maintenance Mode
         run: |
           echo "Enabling maintenance mode"
           sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable 
+
       - name: Backup Existing Plugin
         run: |
           set -eo pipefail
@@ -156,6 +164,7 @@ jobs:
           else
             echo "No existing directory found at $target_dir, skipping backup"
           fi
+
       - name: Deploy Plugin
         run: |
           set -eo pipefail
@@ -180,11 +189,13 @@ jobs:
           echo "Setting file permissions to 777"
           sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
+
       - name: Disable Maintenance Mode
         if: always() 
         run: |
           echo "Disabling maintenance mode"
           sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
+
   create-release:
     name: Create GitHub Release
     needs: [detect-changes, deploy-plugins]
@@ -196,6 +207,7 @@ jobs:
         with:
           ref: ${{ github.event.inputs.branch || github.ref_name }}
           fetch-depth: 0
+
       - name: Debug Version Extraction
         run: |
           for dir in $(echo '${{ needs.detect-changes.outputs.directories }}' | jq -r '.[]'); do
@@ -208,6 +220,7 @@ jobs:
                 sed -E 's/.*=\s*([0-9]+).*/\1/' | head -n 1
             fi
           done
+
       - name: Generate Release Notes and Tags with PR Description
         id: generate-release
         env:
@@ -216,54 +229,29 @@ jobs:
           echo "Generating release notes and tags with PR descriptions"
           release_notes=""
           tag_list=""
-          # Get merged PRs that include the last commit
-          pr_info=$(gh pr list --state merged --base develop --search "$(git log -1 --pretty=%s)" --json number,title,body --limit 1)
-          pr_title=$(echo "$pr_info" | jq -r '.[0].title // "No PR title found"')
-          pr_body=$(echo "$pr_info" | jq -r '.[0].body // "No PR body found"')
-          echo "PR Title: $pr_title"
-          echo "PR Body: $pr_body"
-          # Add PR description to release notes
-          release_notes="### Pull Request Summary\n**$pr_title**\n\n$pr_body\n"
-          for dir in $(echo '${{ needs.detect-changes.outputs.directories }}' | jq -r '.[]'); do
-            echo "Processing directory: $dir"
-            safe_name=$(echo "$dir" | tr '/' '-')
-            plugin_name=$(basename "$dir")
-            version_file="$dir/version.php"
-            if [ -f "$version_file" ]; then
-              version=$(grep -E '(\$plugin->version|\$module->version|\$version)\s*=' "$version_file" | \
-                        sed -E 's/.*=\s*([0-9]+).*/\1/' | head -n 1)
-              if [[ -z "$version" || ! "$version" =~ ^[0-9]+$ ]]; then
-                version=$(date +%Y%m%d%H%M)
-              fi
-            else
-              version=$(date +%Y%m%d%H%M)
-            fi
-            tag="$safe_name-v$version"
-            tag_list="$tag_list $tag"
-            release_notes="$release_notes\n### $plugin_name\n- Version: $version\n- Directory: $dir"
-          done
-          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$release_notes" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "tags=$tag_list" >> $GITHUB_OUTPUT
-      - name: Retrieve All Packages
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/release-artifacts/${{ github.run_id }}
-          pattern: pkg-*
-          merge-multiple: true
+          # Get merged PRs in this branch
+          merged_prs=$(gh pr list --base ${{ github.ref_name }} --state merged --json title,url --jq '.[] | .url' || echo "No merged PRs")
+          echo "Merged PR URLs: $merged_prs"
+          release_notes="Release Notes: $(echo "$merged_prs" | tr '\n' ' ')"
+          tag_list=$(git tag -l "plugins-enrol-category-v*")
+          echo "Existing tags: $tag_list"
+          echo "::set-output name=tags::$tag_list"
+
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Creating GitHub release"
-          # Get the first generated tag, or use the new tag if a duplicate was found
           first_tag=$(echo ${{ steps.generate-release.outputs.tags }} | cut -d' ' -f1)
-          # Update to use the last generated unique tag if necessary
           new_tag=$(git tag -l "plugins-enrol-category-v*" | sort -r | head -n 1)
-          echo "Using tag for release: $new_tag"
+
+          if gh release view "$new_tag" > /dev/null 2>&1; then
+            echo "Release with tag $new_tag already exists, generating new tag"
+            timestamp=$(date +%Y%m%d%H%M%S)
+            new_tag="${new_tag}-$timestamp"
+          fi
+
           release_name="Release $new_tag"
-          # Create GitHub release using the new tag
           gh release create "$new_tag" \
             --title "$release_name" \
             --notes "${{ steps.generate-release.outputs.release_notes }}" \
