@@ -292,12 +292,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "Creating GitHub release"
-          first_tag=$(echo ${{ steps.generate-release.outputs.tags }} | cut -d' ' -f1)
-          echo "Using tag for release: $first_tag"
-          release_name="Release $first_tag"
-          gh release create "$first_tag" \
-            --title "$release_name" \
-            --notes "${{ steps.generate-release.outputs.release_notes }}" \
-            /tmp/release-artifacts/${{ github.run_id }}/*.zip
-          echo "Release $release_name created successfully"
+         echo "Creating GitHub release"
+         # Get the first generated tag, or use the new tag if a duplicate was found
+         first_tag=$(echo ${{ steps.generate-release.outputs.tags }} | cut -d' ' -f1)
+         # Update to use the last generated unique tag if necessary
+         new_tag=$(git tag -l "plugins-enrol-category-v*" | sort -r | head -n 1)
+         echo "Using tag for release: $new_tag"
+         release_name="Release $new_tag"
+    
+         # Create GitHub release using the new tag
+         gh release create "$new_tag" \
+         --title "$release_name" \
+         --notes "${{ steps.generate-release.outputs.release_notes }}" \
+         /tmp/release-artifacts/${{ github.run_id }}/*.zip
+         echo "Release $release_name created successfully"
