@@ -245,54 +245,68 @@ jobs:
           echo "Fetching PR details for the latest commit"
           commit_sha=$(git rev-parse HEAD)
           echo "Latest commit SHA: $commit_sha"
-
+          
           pr_data=$(gh api -H "Accept: application/vnd.github+json" \
             "/repos/${{ github.repository }}/commits/$commit_sha/pulls" \
-            --jq '.[0] | {number: .number, title: .title, body: .body}')
-
+            --jq '.[0] | {body: .body}')
+          
           if [[ -z "$pr_data" ]]; then
             echo "No PR found for commit $commit_sha, using fallback release notes"
-            release_notes="Release for Operations-${{ needs.validate-inputs.outputs.release_number }}"
+            release_notes="Release ${{ needs.validate-inputs.outputs.release_number }} consists of the following changes.\n\n- No specific changes documented."
           else
-            pr_number=$(echo "$pr_data" | jq -r '.number')
-            pr_title=$(echo "$pr_data" | jq -r '.title')
             pr_body=$(echo "$pr_data" | jq -r '.body // ""')
-            echo "Found PR #$pr_number: $pr_title"
-            release_notes="# Release Operations-${{ needs.validate-inputs.outputs.release_number }}\n\n## PR #$pr_number: $pr_title\n\n$pr_body"
+            echo "PR body: $pr_body"
+            
+            if [[ -z "$pr_body" ]]; then
+              echo "PR body is empty, using fallback release notes"
+              release_notes="Release ${{ needs.validate-inputs.outputs.release_number }} consists of the following changes.\n\n- No specific changes documented."
+            else
+              release_notes="Release ${{ needs.validate-inputs.outputs.release_number }} consists of the following changes.\n\n$pr_body"
+            fi
           fi
-
+          
           echo "release_notes<<EOF" >> $GITHUB_OUTPUT
-          echo "$release_notes" >> $GITHUB_OUTPUT
+          echo -e "$release_notes" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
-
+  
       - name: Download Artifacts
         uses: actions/download-artifact@v4
         with:
-          path: /tmp/artifacts
-          pattern: pkg-*
-          merge-multiple: true
-
+           path: /tmp/artifacts
+           pattern: pkg-*
+           merge-multiple: true
+  
       - name: Create GitHub Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag_name="Operations-${{ needs.validate-inputs.outputs.release_number }}"
-          echo "Creating release for tag: $tag_name"
-
+          release_title="AIAU NextGen - Release ${{ needs.validate-inputs.outputs.release_number }}"
+          echo "Creating release for tag: $tag_name with title: $release_title"
+            
+          # Prepare release notes file
           release_notes_file="/tmp/release_notes.md"
           echo "${{ steps.fetch-pr.outputs.release_notes }}" > "$release_notes_file"
-
+            
+          # Collect artifact files
           artifact_files=()
           for file in /tmp/artifacts/*.{zip,tar.gz}; do
             if [[ -f "$file" ]]; then
               artifact_files+=("$file")
             fi
           done
-
+            
           if [[ ${#artifact_files[@]} -eq 0 ]]; then
             echo "Warning: No artifacts found for release"
           else
             echo "Found artifacts: ${artifact_files[*]}"
           fi
-
-          gh release create "$tag_name" "${artifact_files[@]}" -F "$release_notes_file" --title "$tag_name"
+            
+          # Create release with gh CLI
+          gh release create "$tag_name" \
+            --title "$release_title" \
+            --notes-file "$release_notes_file" \
+            "${artifact_files[@]}" \
+            --target "${{ github.sha }}"
+            
+          echo "Release created successfully for $tag_name"
