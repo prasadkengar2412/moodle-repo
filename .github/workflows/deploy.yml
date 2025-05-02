@@ -1,10 +1,6 @@
 name: Moodle Plugin Workflow - develop
 
 on:
-  push:
-    branches:
-      - develop
-
   workflow_dispatch:
     inputs:
       branch:
@@ -14,13 +10,43 @@ on:
         default: 'develop'
         options:
           - 'develop'
+      release_number:
+        description: 'Release number for main branch (e.g., 1.0.0)'
+        required: false
+        type: string
 
 env:
   MOODLE_ROOT: /var/www/html/moodle
 
 jobs:
+  validate-inputs:
+    name: Validate Workflow Inputs
+    runs-on: ubuntu-latest
+    outputs:
+      release_number: ${{ steps.validate-release.outputs.release_number }}
+    steps:
+      - name: Validate Release Number
+        id: validate-release
+        run: |
+          if [[ "${{ github.event.inputs.branch }}" == "main" ]]; then
+            release_number="${{ github.event.inputs.release_number }}"
+            if [[ -z "$release_number" ]]; then
+              echo "Error: Release number is required for main branch"
+              exit 1
+            fi
+            if [[ ! "$release_number" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "Error: Release number must be in semantic version format (e.g., 1.0.0)"
+              exit 1
+            fi
+            echo "release_number=$release_number" >> $GITHUB_OUTPUT
+          else
+            echo "Skipping release number validation for non-main branch"
+            echo "release_number=" >> $GITHUB_OUTPUT
+          fi
+
   detect-changes:
     name: Identify Changed Plugins
+    needs: validate-inputs
     runs-on: ubuntu-latest
     outputs:
       directories: ${{ steps.process-changes.outputs.dirs }}
@@ -72,7 +98,7 @@ jobs:
 
   package-plugins:
     name: Package Changed Plugins
-    needs: detect-changes
+    needs: [validate-inputs, detect-changes]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ubuntu-latest
     strategy:
@@ -109,7 +135,7 @@ jobs:
 
   deploy-plugins:
     name: Deploy to Server
-    needs: [detect-changes, package-plugins]
+    needs: [validate-inputs, detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ${{ 
                   github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') ||
@@ -187,128 +213,32 @@ jobs:
           sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
       - name: Disable Maintenance Mode
-        if: always() 
+        if: always()
         run: |
           echo "Disabling maintenance mode"
           sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
 
-  create-release:
-    name: Create GitHub Release
-    needs: [detect-changes, deploy-plugins]
-    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+  create-tag-and-release:
+    name: Create Tag and GitHub Release
+    needs: [validate-inputs, detect-changes, deploy-plugins]
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.inputs.branch || github.ref_name }}
+          ref: ${{ github.event.inputs.branch }}
           fetch-depth: 0
-          
-      - name: Get PR Description (if applicable)
-        id: pr-description
-        run: |
-          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
-            pr_description=$(curl -s \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              "https://api.github.com/repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}" \
-              | jq -r '.body')
-            echo "PR description fetched: $pr_description"
-          else
-            pr_description="No PR description available."
-            echo "No PR description available."
-          fi
-          echo "pr_description=$pr_description" >> $GITHUB_OUTPUT
-          
-      - name: Generate Release Notes and Tags
-        id: generate-release
-        run: |
-          echo "Generating release notes and tags for changed plugins"
-          release_notes="${{ steps.pr-description.outputs.pr_description }}"
-          tag_list=""
-          for dir in $(echo '${{ needs.detect-changes.outputs.directories }}' | jq -r '.[]'); do
-            echo "Processing directory: $dir"
-            safe_name=$(echo "$dir" | tr '/' '-')
-            plugin_name=$(basename "$dir")
-            version_file="$dir/version.php"
-            if [ -f "$version_file" ]; then
-              echo "Extracting version from $version_file"
-              version=$(grep -E '(\$plugin->version|\$module->version|\$version)\s*=' "$version_file" | \
-                        sed -E 's/.*=\s*([0-9]+).*/\1/' | head -n 1)
-              if [[ -z "$version" || ! "$version" =~ ^[0-9]+$ ]]; then
-                version=$(date +%Y%m%d%H%M)
-                echo "No valid numeric version found in $version_file, using timestamp: $version"
-              else
-                echo "Version found: $version"
-              fi
-            else
-              version=$(date +%Y%m%d%H%M)
-              echo "No version.php found, using timestamp: $version"
-            fi
-            tag="$safe_name-v$version"
-            echo "Generated tag: $tag"
-            tag_list="$tag_list $tag"
-            # Fetch commit messages for files in the directory
-            echo "Fetching commit messages for $dir"
-            commit_messages=$(git log --pretty=format:"%s" HEAD^..HEAD -- "$dir" | sed 's/^/- /' | sort -u)
-            if [[ -z "$commit_messages" ]]; then
-              echo "No commit messages found for $dir"
-              commit_messages="- No commit messages found for this plugin"
-            else
-              echo "Commit messages found for $dir:" 
-              echo "$commit_messages"
-            fi
-            # Build release notes with plugin details and commit messages
-            release_notes="$release_notes\n### $plugin_name\n- Version: $version\n- Directory: $dir\n#### Commits:\n$commit_messages\n"
-          done
-          echo "Final release notes:"
-          echo -e "$release_notes"
-          echo "tag_list=$tag_list"
-          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
-          echo -e "$release_notes" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
-          echo "tags=$tag_list" >> $GITHUB_OUTPUT
-          
-      - name: Create Tags
-        run: |
-          echo "Creating tags"
-          for tag in ${{ steps.generate-release.outputs.tags }}; do
-            echo "Checking tag: $tag"
-            if git rev-parse "$tag" >/dev/null 2>&1; then
-              echo "Tag $tag already exists, generating unique tag"
-              timestamp=$(date +%Y%m%d%H%M%S)
-              new_tag="${tag}-${timestamp}"
-              echo "Creating unique tag: $new_tag"
-              git tag "$new_tag"
-              git push origin "$new_tag"
-            else
-              echo "Creating tag: $tag"
-              git tag "$tag"
-              git push origin "$tag"
-            fi
-          done
-          
-      - name: Retrieve All Packages
-        uses: actions/download-artifact@v4
-        with:
-          path: /tmp/release-artifacts/${{ github.run_id }}
-          pattern: pkg-*
-          merge-multiple: true
 
-      - name: Create GitHub Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Create Tag
+        id: create-tag
         run: |
-         echo "Creating GitHub release"
-         # Get the first generated tag, or use the new tag if a duplicate was found
-         first_tag=$(echo ${{ steps.generate-release.outputs.tags }} | cut -d' ' -f1)
-         # Update to use the last generated unique tag if necessary
-         new_tag=$(git tag -l "plugins-enrol-category-v*" | sort -r | head -n 1)
-         echo "Using tag for release: $new_tag"
-         release_name="Release $new_tag"
-    
-         # Create GitHub release using the new tag
-         gh release create "$new_tag" \
-         --title "$release_name" \
-         --notes "${{ steps.generate-release.outputs.release_notes }}" \
-         /tmp/release-artifacts/${{ github.run_id }}/*.zip
-         echo "Release $release_name created successfully"
+          tag_name="Operations-${{ needs.validate-inputs.outputs.release_number }}"
+          echo "Creating tag: $tag_name"
+          if git rev-parse "$tag_name" >/dev/null 2>&1; then
+            echo "Error: Tag $tag_name already exists"
+            exit 1
+          fi
+          git tag "$tag_name"
+          git push origin "$tag_name"
+          echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
