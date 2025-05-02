@@ -57,15 +57,16 @@ jobs:
           echo "plugin_dirs<<EOF" >> $GITHUB_OUTPUT
           echo "$plugin_dirs" >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
+
       - name: Process Changes
         id: process-changes
         run: |
           echo "Processing changes in the latest commit"
           changed_files=$(git diff --name-only HEAD^ HEAD)
           echo "Changed files detected: $changed_files"
-          
+
           declare -A plugin_map
-          
+
           echo "Checking plugin directories for changes"
           for dir in $(echo "${{ steps.find-plugins.outputs.plugin_dirs }}"); do
             if echo "$changed_files" | grep -q "^$dir/"; then
@@ -73,10 +74,10 @@ jobs:
               plugin_map["$dir"]=1
             fi
           done
-          
+
           dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
           echo "List of directories with changes: $dir_list"
-          
+
           if [[ -z "$dir_list" ]]; then
             json_dirs="[]"
             echo "No changes detected in plugin directories"
@@ -84,7 +85,7 @@ jobs:
             json_dirs=$(jq -nc '$ARGS.positional' --args ${dir_list})
             echo "Formatted changed directories as JSON: $json_dirs"
           fi
-          
+
           echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
 
   package-plugins:
@@ -108,15 +109,16 @@ jobs:
           safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
           zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
           echo "Generated package name: $zip_file"
-          
+
           cd "$(dirname "${{ matrix.dir }}")"
           echo "Zipping directory: $(basename "${{ matrix.dir }}")"
           zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
-          
+
           zip_path="$(pwd)/$zip_file"
           echo "Created package at: $zip_path"
           echo "zip=$zip_path" >> $GITHUB_OUTPUT
           echo "name=$safe_name" >> $GITHUB_OUTPUT
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -128,9 +130,7 @@ jobs:
     name: Deploy to Server
     needs: [validate-inputs, detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    runs-on: ${{ 
-                  github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'develop' && fromJson('["self-hosted", "private1", "dev"]') 
-              }}
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'develop' && fromJson('["self-hosted", "private1", "dev"]') }}
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
@@ -150,6 +150,7 @@ jobs:
           echo "Target path: $target_path"
           echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
           echo "target_path=$target_path" >> $GITHUB_OUTPUT
+
       - name: Retrieve Package
         uses: actions/download-artifact@v4
         with:
@@ -159,7 +160,8 @@ jobs:
       - name: Enable Maintenance Mode
         run: |
           echo "Enabling maintenance mode"
-          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable 
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable
+
       - name: Backup Existing Plugin
         run: |
           set -eo pipefail
@@ -178,6 +180,7 @@ jobs:
           else
             echo "No existing directory found at $target_dir, skipping backup"
           fi
+
       - name: Deploy Plugin
         run: |
           set -eo pipefail
@@ -202,6 +205,7 @@ jobs:
           echo "Setting file permissions to 777"
           sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
+
       - name: Disable Maintenance Mode
         if: always()
         run: |
@@ -232,3 +236,63 @@ jobs:
           git tag "$tag_name"
           git push origin "$tag_name"
           echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
+
+      - name: Fetch PR Details
+        id: fetch-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching PR details for the latest commit"
+          commit_sha=$(git rev-parse HEAD)
+          echo "Latest commit SHA: $commit_sha"
+
+          pr_data=$(gh api -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/commits/$commit_sha/pulls" \
+            --jq '.[0] | {number: .number, title: .title, body: .body}')
+
+          if [[ -z "$pr_data" ]]; then
+            echo "No PR found for commit $commit_sha, using fallback release notes"
+            release_notes="Release for Operations-${{ needs.validate-inputs.outputs.release_number }}"
+          else
+            pr_number=$(echo "$pr_data" | jq -r '.number')
+            pr_title=$(echo "$pr_data" | jq -r '.title')
+            pr_body=$(echo "$pr_data" | jq -r '.body // ""')
+            echo "Found PR #$pr_number: $pr_title"
+            release_notes="# Release Operations-${{ needs.validate-inputs.outputs.release_number }}\n\n## PR #$pr_number: $pr_title\n\n$pr_body"
+          fi
+
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo "$release_notes" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/artifacts
+          pattern: pkg-*
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag_name="Operations-${{ needs.validate-inputs.outputs.release_number }}"
+          echo "Creating release for tag: $tag_name"
+
+          release_notes_file="/tmp/release_notes.md"
+          echo "${{ steps.fetch-pr.outputs.release_notes }}" > "$release_notes_file"
+
+          artifact_files=()
+          for file in /tmp/artifacts/*.{zip,tar.gz}; do
+            if [[ -f "$file" ]]; then
+              artifact_files+=("$file")
+            fi
+          done
+
+          if [[ ${#artifact_files[@]} -eq 0 ]]; then
+            echo "Warning: No artifacts found for release"
+          else
+            echo "Found artifacts: ${artifact_files[*]}"
+          fi
+
+          gh release create "$tag_name" "${artifact_files[@]}" -F "$release_notes_file" --title "$tag_name"
