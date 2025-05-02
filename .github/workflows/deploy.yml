@@ -11,7 +11,7 @@ on:
         options:
           - 'develop'
       release_number:
-        description: 'Release number for main branch (e.g., 1.0.0)'
+        description: 'Release number for develop branch'
         required: false
         type: string
 
@@ -28,17 +28,12 @@ jobs:
       - name: Validate Release Number
         id: validate-release
         run: |
-          if [[ "${{ github.event.inputs.branch }}" == "main" ]]; then
-            release_number="${{ github.event.inputs.release_number }}"
-            if [[ -z "$release_number" ]]; then
-              echo "Error: Release number is required for main branch"
-              exit 1
-            fi
-            echo "release_number=$release_number" >> $GITHUB_OUTPUT
-          else
-            echo "Skipping release number validation for non-main branch"
-            echo "release_number=" >> $GITHUB_OUTPUT
+          release_number="${{ github.event.inputs.release_number }}"
+          if [[ -z "$release_number" ]]; then
+            echo "Error: Release number is required for selected branch"
+            exit 1
           fi
+          echo "release_number=$release_number" >> $GITHUB_OUTPUT
 
   detect-changes:
     name: Identify Changed Plugins
