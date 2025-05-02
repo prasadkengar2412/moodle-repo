@@ -129,8 +129,7 @@ jobs:
     needs: [validate-inputs, detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ${{ 
-                  github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && fromJson('["self-hosted", "priavte2", "prod"]') ||
-                  github.event_name == 'push' && github.ref_name == 'develop' && fromJson('["self-hosted", "private1", "dev"]')
+                  github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'develop' && fromJson('["self-hosted", "private1", "dev"]') 
               }}
     strategy:
       matrix:
