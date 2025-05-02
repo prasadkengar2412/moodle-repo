@@ -281,7 +281,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag_name="Operations-${{ needs.validate-inputs.outputs.release_number }}"
-          release_title="AIAU NextGen - Release ${{ needs.validate-inputs.outputs.release_number }}"
+          release_title="TEST Title - Release ${{ needs.validate-inputs.outputs.release_number }}"
           echo "Creating release for tag: $tag_name with title: $release_title"
             
           # Prepare release notes file
