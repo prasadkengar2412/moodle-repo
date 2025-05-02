@@ -211,7 +211,7 @@ jobs:
   create-tag-and-release:
     name: Create Tag and GitHub Release
     needs: [validate-inputs, detect-changes, deploy-plugins]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && needs.detect-changes.outputs.directories != '[]' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'develop' && needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
