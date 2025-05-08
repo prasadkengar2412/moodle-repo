@@ -1,4 +1,4 @@
-name: Moodle Plugin Workflow - develop
+name: Moodle Plugin Workflow - stg
 
 on:
   push:
