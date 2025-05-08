@@ -117,7 +117,7 @@ jobs:
     name: Deploy to Server
     needs: [validate-inputs, detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    runs-on: ["self-hosted", "private2", "prod"]
+    runs-on: ["self-hosted", "priavte2", "prod"]
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
