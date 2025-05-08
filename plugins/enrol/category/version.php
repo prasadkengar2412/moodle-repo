@@ -10,10 +10,10 @@
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-//test comment
+//test commit
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
-//TEST 
+//
 /**
  * Category enrolment plugin version specification.
  *
@@ -24,6 +24,6 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2022041900;        // The current plugin version (Date: YYYYMMDDXX).
+$plugin->version   = 2025050200;         // The current plugin version (Date: YYYYMMDDXX).
 $plugin->requires  = 2022041200;        // Requires this Moodle version.
 $plugin->component = 'enrol_category';  // Full name of the plugin (used for diagnostics)

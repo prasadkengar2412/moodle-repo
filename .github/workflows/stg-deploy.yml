@@ -1,0 +1,194 @@
+name: Moodle Plugin Workflow - stg
+
+on:
+  push:
+   branches:
+      - stg
+
+env:
+  MOODLE_ROOT: /var/www/html/moodle
+
+jobs:
+  detect-changes:
+    name: Identify Changed Plugins
+    runs-on: ubuntu-latest
+    outputs:
+      directories: ${{ steps.process-changes.outputs.dirs }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find Plugin Directories
+        id: find-plugins
+        run: |
+          echo "Scanning for plugin directories containing version.php under plugins/"
+          # Find directories containing version.php under plugins/
+          plugin_dirs=$(find plugins -type f -name version.php -exec dirname {} \; | sort -u)
+          echo "Found plugin directories: $plugin_dirs"
+          echo "plugin_dirs<<EOF" >> $GITHUB_OUTPUT
+          echo "$plugin_dirs" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+      - name: Process Changes
+        id: process-changes
+        run: |
+          echo "Processing changes in the latest commit"
+          # Get the list of changed files in the latest commit
+          changed_files=$(git diff --name-only HEAD^ HEAD)
+          echo "Changed files detected: $changed_files"
+          
+          # Initialize an associative array to track changed directories
+          declare -A plugin_map
+          
+          # Loop through each plugin directory
+          echo "Checking plugin directories for changes"
+          for dir in $(echo "${{ steps.find-plugins.outputs.plugin_dirs }}"); do
+            # Check if any changed file is within this directory
+            if echo "$changed_files" | grep -q "^$dir/"; then
+              echo "Change detected in directory: $dir"
+              plugin_map["$dir"]=1
+            fi
+          done
+          
+          # Convert the changed directories to a sorted list
+          dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
+          echo "List of directories with changes: $dir_list"
+          
+          # If no changes, output an empty JSON array; otherwise, format as JSON
+          if [[ -z "$dir_list" ]]; then
+            json_dirs="[]"
+            echo "No changes detected in plugin directories"
+          else
+            json_dirs=$(jq -nc '$ARGS.positional' --args ${dir_list})
+            echo "Formatted changed directories as JSON: $json_dirs"
+          fi
+          
+          echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
+  package-plugins:
+    name: Package Changed Plugins
+    needs: detect-changes
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create Plugin Bundle
+        id: package
+        run: |
+          echo "Creating package for plugin: ${{ matrix.dir }}"
+          # Compute a safe name by replacing '/' with '-'
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
+          echo "Generated package name: $zip_file"
+          
+          # Change into the parent directory and zip the plugin folder
+          cd "$(dirname "${{ matrix.dir }}")"
+          echo "Zipping directory: $(basename "${{ matrix.dir }}")"
+          zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
+          
+          zip_path="$(pwd)/$zip_file"
+          echo "Created package at: $zip_path"
+          echo "zip=$zip_path" >> $GITHUB_OUTPUT
+          echo "name=$safe_name" >> $GITHUB_OUTPUT
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.zip }}
+          retention-days: 90
+
+#  deploy-plugins:
+#    name: Deploy to Server
+#    needs: [detect-changes, package-plugins]
+#    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+#    runs-on: ["self-hosted", "private3", "stg"]
+#    strategy:
+#      matrix:
+#        dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
+#    steps:
+#      - name: Compute Safe Name and Target Path
+#        id: compute-safe
+#        run: |
+#          echo "Computing safe name and target path for: ${{ matrix.dir }}"
+#          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+#          deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
+#          case "${{ matrix.dir }}" in
+#            plugins/block/*) target_path="blocks/$(basename "${{ matrix.dir }}")" ;;
+#            plugins/customfield/*) target_path="customfield/field/$(basename "${{ matrix.dir }}")" ;;
+#            *) target_path="$deploy_subdir" ;;
+#          esac
+#          echo "Safe name: $safe_name"
+#          echo "Target path: $target_path"
+#          echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
+#          echo "target_path=$target_path" >> $GITHUB_OUTPUT
+#      - name: Retrieve Package
+#        uses: actions/download-artifact@v4
+#        with:
+#          name: pkg-${{ steps.compute-safe.outputs.safe_name }}
+#           path: /tmp/deployment/${{ github.run_id }}
+
+#      - name: Enable Maintenance Mode
+#        run: |
+#          echo "Enabling maintenance mode"
+#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable        
+#      - name: Backup Existing Plugin
+#        run: |
+#          set -eo pipefail
+#          trap 'echo "Backup failed at line $LINENO" && exit 1' ERR
+#          target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
+#          backup_dir="/tmp/moodle-backups/${{ github.run_id }}/$(date +%Y%m%d)/${{ steps.compute-safe.outputs.target_path }}"
+#          echo "Checking if target directory exists: $target_dir"
+#          if [ -d "$target_dir" ]; then
+#            echo "Target directory exists, proceeding with backup"
+#            sudo mkdir -p "$backup_dir"
+#            echo "Created backup directory: $backup_dir"
+#            backup_file="$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz"
+#            echo "Creating backup file: $backup_file"
+#            sudo tar -czf "$backup_file" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
+#            echo "Backup completed successfully: $backup_file"
+#          else
+#            echo "No existing directory found at $target_dir, skipping backup"
+#          fi
+#      - name: Deploy Plugin
+#        run: |
+#          set -eo pipefail
+#          trap 'echo "Deployment failed at line $LINENO" && exit 1' ERR
+#          target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
+#          safe_name="${{ steps.compute-safe.outputs.safe_name }}"
+#          echo "Deploying plugin to: $target_dir"
+#          zip_file=$(ls -t /tmp/deployment/${{ github.run_id }}/${safe_name}-*.zip | head -n 1)
+#          if [ -z "$zip_file" ]; then
+#            echo "Error: No ZIP file found for $safe_name"
+#            exit 1
+#          fi
+#          echo "Found ZIP file for deployment: $zip_file"
+#          echo "Ensuring parent directory exists: $(dirname "$target_dir")"
+#          sudo mkdir -p "$(dirname "$target_dir")"
+#          echo "Unzipping $zip_file to $(dirname "$target_dir")"
+#          sudo unzip -qo "$zip_file" -d "$(dirname "$target_dir")"
+#          echo "Setting ownership of $target_dir to www-data:www-data"
+#          sudo chown -R www-data:www-data "$target_dir"
+#          echo "Setting directory permissions to 777"
+#          sudo find "$target_dir" -type d -exec chmod 777 {} \;
+#          echo "Setting file permissions to 777"
+#          sudo find "$target_dir" -type f -exec chmod 777 {} \;
+#          echo "Deployment completed successfully for $target_dir"
+#      - name: Run Moodle Upgrade
+#        run: |
+#          echo "Running Moodle upgrade"
+#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
+#      - name: Purge Moodle Caches
+#        run: |
+#          echo "Purging Moodle caches"
+#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/purge_caches.php
+#      - name: Disable Maintenance Mode
+#        if: always() 
+#        run: |
+#          echo "Disabling maintenance mode"
+#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable

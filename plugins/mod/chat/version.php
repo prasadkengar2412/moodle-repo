@@ -10,7 +10,7 @@
 // but WITHOUT ANY WARRANTY; without even the implied warranty of
 // MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 // GNU General Public License for more details.
-//
+// TEST COMMENT
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -24,6 +24,6 @@
 
 defined('MOODLE_INTERNAL') || die();
 
-$plugin->version   = 2022041901; // The current module version (Date: YYYYMMDDXX).
+$plugin->version   = 2025050500; // The current module version (Date: YYYYMMDDXX).
 $plugin->requires  = 2022041200; // Requires this Moodle version.
 $plugin->component = 'mod_chat'; // Full name of the plugin (used for diagnostics).

@@ -5,3 +5,4 @@
 .github/workflows/main_deploy.yml
 .github/workflows/staging_deploy.yml
 .github/workflows/test-clone.yml
+.github/workflows/tag-release.yml
