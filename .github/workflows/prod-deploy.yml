@@ -4,6 +4,11 @@ on:
   workflow_dispatch:
     branches:
       - main
+    input:
+      release_number:
+        description: 'Release number for main branch'
+        required: true
+        type: string
 
 env:
   MOODLE_ROOT: /var/www/html/moodle
