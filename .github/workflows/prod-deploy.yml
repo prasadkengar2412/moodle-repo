@@ -2,19 +2,13 @@ name: Moodle Plugin Workflow - Production
 
 on:
   workflow_dispatch:
+    branches:
+      - main
     inputs:
-      branches:
-        description: 'Select deployment branch'
-        required: true
-        type: choice
-        default: 'main'
-        options:
-          - 'main'
       release_number:
         description: 'Release number for main branch'
         required: true
         type: string
-
 
 env:
   MOODLE_ROOT: /var/www/html/moodle
@@ -198,7 +192,7 @@ jobs:
   create-tag-and-release:
     name: Create Tag and GitHub Release
     needs: [validate-inputs, detect-changes, deploy-plugins]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && needs.detect-changes.outputs.directories != '[]' }}
+    if: ${{ github.event_name == 'workflow_dispatch' && needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
