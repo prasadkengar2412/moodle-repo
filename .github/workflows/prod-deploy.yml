@@ -3,13 +3,6 @@ name: Moodle Plugin Workflow - Production
 on:
   workflow_dispatch:
     inputs:
-      branch:
-        description: 'Select deployment branch'
-        required: true
-        type: choice
-        default: 'main'
-        options:
-          - 'main'
       release_number:
         description: 'Release number for main branch'
         required: true
@@ -19,8 +12,19 @@ env:
   MOODLE_ROOT: /var/www/html/moodle
 
 jobs:
+  check-branch:
+    name: Validate Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure Workflow Runs on Main Branch
+        run: |
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "Error: This workflow can only be triggered from the main branch."
+            exit 1
+          fi
   validate-inputs:
     name: Validate Workflow Inputs
+    needs: check-branch  
     runs-on: ubuntu-latest
     outputs:
       release_number: ${{ steps.validate-release.outputs.release_number }}
@@ -197,7 +201,7 @@ jobs:
   create-tag-and-release:
     name: Create Tag and GitHub Release
     needs: [validate-inputs, detect-changes, deploy-plugins]
-    if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch == 'main' && needs.detect-changes.outputs.directories != '[]' }}
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
