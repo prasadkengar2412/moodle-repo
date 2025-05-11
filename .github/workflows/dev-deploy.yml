@@ -179,16 +179,16 @@ jobs:
           echo "Setting file permissions to 777"
           sudo find "$target_dir" -type f -exec chmod 777 {} \;
           echo "Deployment completed successfully for $target_dir"
-      - name: Run Moodle Upgrade
-        run: |
-          echo "Running Moodle upgrade"
-          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
-      - name: Purge Moodle Caches
-        run: |
-          echo "Purging Moodle caches"
-          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/purge_caches.php
-      - name: Disable Maintenance Mode
-        if: always() 
-        run: |
-          echo "Disabling maintenance mode"
-          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
+#      - name: Run Moodle Upgrade
+#        run: |
+#          echo "Running Moodle upgrade"
+#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
+#      - name: Purge Moodle Caches
+#        run: |
+#          echo "Purging Moodle caches"
+#         sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/purge_caches.php
+#      - name: Disable Maintenance Mode
+#        if: always() 
+#        run: |
+#          echo "Disabling maintenance mode"
+#          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
