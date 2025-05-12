@@ -23,22 +23,32 @@ jobs:
             exit 1
           fi
   validate-inputs:
-    name: Validate Workflow Inputs
-    needs: check-branch  
-    runs-on: ubuntu-latest
-    outputs:
-      release_number: ${{ steps.validate-release.outputs.release_number }}
-    steps:
-      - name: Validate Release Number
-        id: validate-release
-        run: |
-          release_number="${{ github.event.inputs.release_number }}"
-          tag_name="Operations-$release_number"
-          if git rev-parse "$tag_name" >/dev/null 2>&1; then
-            echo "Error: Tag $tag_name already exists"
-            exit 1
-          fi
-          echo "release_number=$release_number" >> $GITHUB_OUTPUT
+   name: Validate Workflow Inputs
+   needs: check-branch  
+   runs-on: ubuntu-latest
+   outputs:
+     release_number: ${{ steps.validate-release.outputs.release_number }}
+   steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  
+
+    - name: Fetch Tags
+      run: git fetch --tags
+
+    - name: Validate Release Number
+      id: validate-release
+      run: |
+        release_number="${{ github.event.inputs.release_number }}"
+        tag_name="Operations-$release_number"
+
+        if git rev-parse "$tag_name" >/dev/null 2>&1; then
+          echo "Error: Tag $tag_name already exists"
+          exit 1
+        fi
+        echo "release_number=$release_number" >> $GITHUB_OUTPUT
+
   detect-changes:
     name: Identify Changed Plugins
     needs: validate-inputs
