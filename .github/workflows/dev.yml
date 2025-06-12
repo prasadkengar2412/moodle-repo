@@ -1,0 +1,20 @@
+name: Show Changed Files on Merge to Develop
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  show-changes:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2  # So we can compare with the previous commit
+
+      - name: Show what changed
+        run: |
+          echo "Files changed in the last commit:"
+          git diff --name-only HEAD^ HEAD
