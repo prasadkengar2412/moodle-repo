@@ -1,0 +1,327 @@
+name: Moodle Plugin Workflow - Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_number:
+        description: 'Release number for main branch'
+        required: true
+        type: string
+
+env:
+  MOODLE_ROOT: /var/www/html
+
+jobs:
+  check-branch:
+    name: Validate Branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ensure Workflow Runs on Main Branch
+        run: |
+          if [[ "${{ github.ref }}" != "refs/heads/main" ]]; then
+            echo "Error: This workflow can only be triggered from the main branch."
+            exit 1
+          fi
+
+  validate-inputs:
+   name: Validate Workflow Inputs
+   needs: check-branch  
+   runs-on: ubuntu-latest
+   outputs:
+     release_number: ${{ steps.validate-release.outputs.release_number }}
+   steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  
+
+    - name: Fetch Tags
+      run: git fetch --tags
+
+    - name: Validate Release Number
+      id: validate-release
+      run: |
+        release_number="${{ github.event.inputs.release_number }}"
+        tag_name="Operations-$release_number"
+        if git rev-parse "$tag_name" >/dev/null 2>&1; then
+          echo "Error: Tag $tag_name already exists"
+          exit 1
+        fi
+        echo "release_number=$release_number" >> $GITHUB_OUTPUT
+  detect-changes:
+    name: Identify Changed Plugins
+    needs: validate-inputs
+    runs-on: ubuntu-latest
+    outputs:
+      directories: ${{ steps.process-changes.outputs.dirs }}
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find Plugin Directories
+        id: find-plugins
+        run: |
+          echo "Scanning for plugin directories containing version.php under plugins/"
+          # Find directories containing version.php under plugins/
+          plugin_dirs=$(find plugins -type f -name version.php -exec dirname {} \; | sort -u)
+          echo "Found plugin directories: $plugin_dirs"
+          echo "plugin_dirs<<EOF" >> $GITHUB_OUTPUT
+          echo "$plugin_dirs" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+          
+      - name: Process Changes
+        id: process-changes
+        run: |
+          echo "Processing changes in the latest commit"
+          # Get the list of changed files in the latest commit
+          changed_files=$(git diff --name-only HEAD^ HEAD)
+          echo "Changed files detected: $changed_files"
+          
+          # Initialize an associative array to track changed directories
+          declare -A plugin_map
+          
+          # Loop through each plugin directory
+          echo "Checking plugin directories for changes"
+          for dir in $(echo "${{ steps.find-plugins.outputs.plugin_dirs }}"); do
+            # Check if any changed file is within this directory
+            if echo "$changed_files" | grep -q "^$dir/"; then
+              echo "Change detected in directory: $dir"
+              plugin_map["$dir"]=1
+            fi
+          done
+          
+          # Convert the changed directories to a sorted list
+          dir_list=$(printf "%s\n" "${!plugin_map[@]}" | sort -u)
+          echo "List of directories with changes: $dir_list"
+          
+          # If no changes, output an empty JSON array; otherwise, format as JSON
+          if [[ -z "$dir_list" ]]; then
+            json_dirs="[]"
+            echo "No changes detected in plugin directories"
+          else
+            json_dirs=$(jq -nc '$ARGS.positional' --args ${dir_list})
+            echo "Formatted changed directories as JSON: $json_dirs"
+          fi
+          
+          echo "dirs=$json_dirs" >> $GITHUB_OUTPUT
+  package-plugins:
+    name: Package Changed Plugins
+    needs: [validate-inputs, detect-changes]
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create Plugin Bundle
+        id: package
+        run: |
+          echo "Creating package for plugin: ${{ matrix.dir }}"
+          # Compute a safe name by replacing '/' with '-'
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          zip_file="${safe_name}-$(date +%Y%m%d-%H%M%S).zip"
+          echo "Generated package name: $zip_file"
+          
+          # Change into the parent directory and zip the plugin folder
+          cd "$(dirname "${{ matrix.dir }}")"
+          echo "Zipping directory: $(basename "${{ matrix.dir }}")"
+          zip -qr "$zip_file" "$(basename "${{ matrix.dir }}")"
+          
+          zip_path="$(pwd)/$zip_file"
+          echo "Created package at: $zip_path"
+          echo "zip=$zip_path" >> $GITHUB_OUTPUT
+          echo "name=$safe_name" >> $GITHUB_OUTPUT
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-${{ steps.package.outputs.name }}
+          path: ${{ steps.package.outputs.zip }}
+          retention-days: 90
+
+  deploy-plugins:
+    name: Deploy to Server
+    needs: [validate-inputs, detect-changes, package-plugins]
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: ["self-hosted", "aiau-prod"]
+    strategy:
+      matrix:
+        dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
+    steps:
+      - name: Compute Safe Name and Target Path
+        id: compute-safe
+        run: |
+          echo "Computing safe name and target path for: ${{ matrix.dir }}"
+          safe_name=$(echo "${{ matrix.dir }}" | tr '/' '-')
+          deploy_subdir=$(echo "${{ matrix.dir }}" | sed 's|^plugins/||')
+          case "${{ matrix.dir }}" in
+            plugins/block/*) target_path="blocks/$(basename "${{ matrix.dir }}")" ;;
+            plugins/customfield/*) target_path="customfield/field/$(basename "${{ matrix.dir }}")" ;;
+            *) target_path="$deploy_subdir" ;;
+          esac
+          echo "Safe name: $safe_name"
+          echo "Target path: $target_path"
+          echo "safe_name=$safe_name" >> $GITHUB_OUTPUT
+          echo "target_path=$target_path" >> $GITHUB_OUTPUT
+      - name: Retrieve Package
+        uses: actions/download-artifact@v4
+        with:
+          name: pkg-${{ steps.compute-safe.outputs.safe_name }}
+          path: /tmp/deployment/${{ github.run_id }}
+
+      - name: Enable Maintenance Mode
+        run: |
+          echo "Enabling maintenance mode"
+          sudo -u sraju /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable        
+      - name: Backup Existing Plugin
+        run: |
+          set -eo pipefail
+          trap 'echo "Backup failed at line $LINENO" && exit 1' ERR
+          target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
+          backup_dir="/tmp/moodle-backups/${{ github.run_id }}/$(date +%Y%m%d)/${{ steps.compute-safe.outputs.target_path }}"
+          echo "Checking if target directory exists: $target_dir"
+          if [ -d "$target_dir" ]; then
+            echo "Target directory exists, proceeding with backup"
+            sudo mkdir -p "$backup_dir"
+            echo "Created backup directory: $backup_dir"
+            backup_file="$backup_dir/$(basename "$target_dir")-$(date +%H%M%S).tgz"
+            echo "Creating backup file: $backup_file"
+            sudo tar -czf "$backup_file" -C "$(dirname "$target_dir")" "$(basename "$target_dir")"
+            echo "Backup completed successfully: $backup_file"
+          else
+            echo "No existing directory found at $target_dir, skipping backup"
+          fi
+      - name: Deploy Plugin
+        run: |
+          set -eo pipefail
+          trap 'echo "Deployment failed at line $LINENO" && exit 1' ERR
+          target_dir="${{ env.MOODLE_ROOT }}/${{ steps.compute-safe.outputs.target_path }}"
+          safe_name="${{ steps.compute-safe.outputs.safe_name }}"
+          echo "Deploying plugin to: $target_dir"
+          zip_file=$(ls -t /tmp/deployment/${{ github.run_id }}/${safe_name}-*.zip | head -n 1)
+          if [ -z "$zip_file" ]; then
+            echo "Error: No ZIP file found for $safe_name"
+            exit 1
+          fi
+          echo "Found ZIP file for deployment: $zip_file"
+          echo "Ensuring parent directory exists: $(dirname "$target_dir")"
+          sudo mkdir -p "$(dirname "$target_dir")"
+          echo "Unzipping $zip_file to $(dirname "$target_dir")"
+          sudo unzip -qo "$zip_file" -d "$(dirname "$target_dir")"
+          echo "Setting ownership of $target_dir to sraju:sraju"
+          sudo chown -R sraju:sraju "$target_dir"
+          echo "Setting directory permissions to 777"
+          sudo find "$target_dir" -type d -exec chmod 777 {} \;
+          echo "Setting file permissions to 777"
+          sudo find "$target_dir" -type f -exec chmod 777 {} \;
+          echo "Deployment completed successfully for $target_dir"
+      - name: Run Moodle Upgrade
+        run: |
+          echo "Running Moodle upgrade"
+          sudo -u sraju /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
+      - name: Purge Moodle Caches
+        run: |
+          echo "Purging Moodle caches"
+          sudo -u sraju /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/purge_caches.php
+      - name: Disable Maintenance Mode
+        if: always()
+        run: |
+          echo "Disabling maintenance mode"
+          sudo -u sraju /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
+
+  create-tag-and-release:
+    name: Create Tag and GitHub Release
+    needs: [validate-inputs, detect-changes, deploy-plugins]
+    if: ${{ needs.detect-changes.outputs.directories != '[]' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create Tag
+        id: create-tag
+        run: |
+          tag_name="Operations-${{ needs.validate-inputs.outputs.release_number }}"
+          echo "Creating tag: $tag_name"
+          git tag "$tag_name"
+          git push origin "$tag_name"
+          echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
+      - name: Fetch PR Details
+        id: fetch-pr
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "Fetching PR details for the latest commit"
+          commit_sha=$(git rev-parse HEAD)
+          echo "Latest commit SHA: $commit_sha"
+          
+          pr_data=$(gh api -H "Accept: application/vnd.github+json" \
+            "/repos/${{ github.repository }}/commits/$commit_sha/pulls" \
+            --jq '.[0] | {body: .body}')
+          
+          if [[ -z "$pr_data" ]]; then
+            echo "No PR found for commit $commit_sha, using fallback release notes"
+            release_notes="Release ${{ needs.validate-inputs.outputs.release_number }} consists of the following changes.\n\n- No specific changes documented."
+          else
+            pr_body=$(echo "$pr_data" | jq -r '.body // ""')
+            echo "PR body: $pr_body"
+            
+            if [[ -z "$pr_body" ]]; then
+              echo "PR body is empty, using fallback release notes"
+              release_notes="Release ${{ needs.validate-inputs.outputs.release_number }} consists of the following changes.\n\n- No specific changes documented."
+            else
+              release_notes="Release ${{ needs.validate-inputs.outputs.release_number }} consists of the following changes.\n\n$pr_body"
+            fi
+          fi
+          
+          echo "release_notes<<EOF" >> $GITHUB_OUTPUT
+          echo -e "$release_notes" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+  
+      - name: Download Artifacts
+        uses: actions/download-artifact@v4
+        with:
+           path: /tmp/artifacts
+           pattern: pkg-*
+           merge-multiple: true
+  
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag_name="Operations-${{ needs.validate-inputs.outputs.release_number }}"
+          release_title="AIAU NextGen - Release ${{ needs.validate-inputs.outputs.release_number }}"
+          echo "Creating release for tag: $tag_name with title: $release_title"
+            
+          # Prepare release notes file
+          release_notes_file="/tmp/release_notes.md"
+          echo "${{ steps.fetch-pr.outputs.release_notes }}" > "$release_notes_file"
+            
+          # Collect artifact files
+          artifact_files=()
+          for file in /tmp/artifacts/*.{zip,tar.gz}; do
+            if [[ -f "$file" ]]; then
+              artifact_files+=("$file")
+            fi
+          done
+            
+          if [[ ${#artifact_files[@]} -eq 0 ]]; then
+            echo "Warning: No artifacts found for release"
+          else
+            echo "Found artifacts: ${artifact_files[*]}"
+          fi
+            
+          # Create release with gh CLI
+          gh release create "$tag_name" \
+            --title "$release_title" \
+            --notes-file "$release_notes_file" \
+            "${artifact_files[@]}" \
+            --target "${{ github.sha }}"
+            
+          echo "Release created successfully for $tag_name"

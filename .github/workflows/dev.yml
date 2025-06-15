@@ -7,7 +7,7 @@ on:
 
 jobs:
   show-changes:
-    runs-on: ubuntu-latest
+    runs-on: ["self-hosted", "moodle-test"]
     steps:
       - name: Checkout the code
         uses: actions/checkout@v3
