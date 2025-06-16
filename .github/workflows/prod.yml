@@ -147,7 +147,7 @@ jobs:
     name: Deploy to Server
     needs: [validate-inputs, detect-changes, package-plugins]
     if: ${{ needs.detect-changes.outputs.directories != '[]' }}
-    runs-on: ["self-hosted", "aiau-prod"]
+    runs-on: ["self-hosted", "moodle-test"]
     strategy:
       matrix:
         dir: ${{ fromJson(needs.detect-changes.outputs.directories) }}
