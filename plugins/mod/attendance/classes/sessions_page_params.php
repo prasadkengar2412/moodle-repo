@@ -13,7 +13,7 @@
 //
 // You should have received a copy of the GNU General Public License
 // along with Moodle.  If not, see <http://www.gnu.org/licenses/>.
-
+// new line added
 
 /**
  * Class definition for mod_attendance_sessions_page_params
