@@ -176,7 +176,7 @@ jobs:
       - name: Enable Maintenance Mode
         run: |
           echo "Enabling maintenance mode"
-          sudo -u sraju /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable        
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --enable        
       - name: Backup Existing Plugin
         run: |
           set -eo pipefail
@@ -222,7 +222,7 @@ jobs:
       - name: Run Moodle Upgrade
         run: |
           echo "Running Moodle upgrade"
-          sudo -u sraju /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/upgrade.php --non-interactive
       - name: Purge Moodle Caches
         run: |
           echo "Purging Moodle caches"
@@ -231,7 +231,7 @@ jobs:
         if: always()
         run: |
           echo "Disabling maintenance mode"
-          sudo -u sraju /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
+          sudo -u www-data /usr/bin/php ${{ env.MOODLE_ROOT }}/admin/cli/maintenance.php --disable
 
   create-tag-and-release:
     name: Create Tag and GitHub Release
