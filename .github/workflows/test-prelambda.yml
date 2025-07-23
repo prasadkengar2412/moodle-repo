@@ -1,0 +1,51 @@
+name: Test and Deploy Lambda to AWS
+
+on:
+  push:
+    branches: [main]  # Change if you deploy from another branch
+
+jobs:
+  test-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # Step 1: Checkout the repo
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # Step 2: Set up Node.js environment
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      # Step 3: Install dependencies
+      - name: Install dependencies
+        run: npm install
+
+      # Step 4: Run unit tests using Jest
+      - name: Run tests
+        run: npm test
+
+      # Step 5: Package Lambda code
+      - name: Package Lambda code
+        run: |
+          mkdir -p package
+          cp -r trigger/* package/
+          cd package
+          zip -r ../lambda.zip .
+
+      # Step 6: Configure AWS credentials (set in repo secrets)
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1  # Change as per your region
+
+      # Step 7: Deploy to AWS Lambda
+      - name: Deploy Lambda code to AWS
+        run: |
+          aws lambda update-function-code \
+            --function-name your-lambda-function-name \
+            --zip-file fileb://lambda.zip
